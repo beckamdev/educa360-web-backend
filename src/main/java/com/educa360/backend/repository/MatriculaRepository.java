@@ -14,12 +14,12 @@ public interface MatriculaRepository extends JpaRepository<Matricula, Long> {
 
     boolean existsByEstudianteAndSeccion(Estudiante estudiante, Seccion seccion);
 
-    /** ¿Ya tiene el estudiante una matrícula en ESTE período? (en otra sección) */
-    boolean existsByEstudianteIdAndSeccionPeriodoId(Long estudianteId, Long periodoId);
+    /** ¿Ya tiene el estudiante una matrícula en ESTE año? (en otra sección) */
+    boolean existsByEstudianteIdAndSeccionAnioId(Long estudianteId, Long anioId);
 
-    /** La matrícula vigente del alumno: la del período ABIERTO. */
-    Optional<Matricula> findByEstudianteIdAndSeccionPeriodoId(Long estudianteId, Long periodoId);
+    /** La matrícula vigente del alumno: la del año ABIERTO. */
+    Optional<Matricula> findByEstudianteIdAndSeccionAnioId(Long estudianteId, Long anioId);
 
-    /** Todas las matrículas de un período (para el listado de Secretaría). */
-    List<Matricula> findBySeccionPeriodoId(Long periodoId);
+    /** Todas las matrículas de un año (para el listado de Secretaría). */
+    List<Matricula> findBySeccionAnioId(Long anioId);
 }

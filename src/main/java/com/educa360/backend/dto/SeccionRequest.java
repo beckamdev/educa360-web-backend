@@ -7,7 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 
 /**
- * Alta/edición de una sección ("3°A") dentro de un período.
+ * Alta/edición de una sección ("3°A") dentro de un año escolar.
  * grado 1..5 porque el sistema es SÓLO secundaria.
  */
 public record SeccionRequest(
@@ -24,7 +24,7 @@ public record SeccionRequest(
 
         Long tutorId, // docente a cargo; opcional
 
-        @NotNull(message = "El período de la sección es obligatorio")
-        Long periodoId
+        @NotNull(message = "El año de la sección es obligatorio")
+        Long anioId
 ) {
 }

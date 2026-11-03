@@ -5,32 +5,37 @@ import jakarta.persistence.*;
 import java.time.LocalDate;
 
 /**
- * Período académico (bimestre) de la institución. Ej.: "Bimestre I, 2026".
+ * Año escolar: el ancla anual de la estructura académica.
  *
- * REGLA CENTRAL: sólo puede haber UNO ABIERTO a la vez — es "el período
- * vigente" al que apuntarán asistencia y calificaciones (§5, regla del docente).
- *
- * Nace CERRADO y se abre explícitamente con PATCH /admin/periodos/{id}/estado:
- * así la regla "uno a la vez" vive en un solo método, y el hecho de abrir un
- * período queda como una acción deliberada, no como un efecto lateral del alta.
+ * Reemplaza al antiguo {@code PeriodoAcademico}. Un año agrupa sus bimestres,
+ * secciones y matrículas. Nace {@code PLANIFICADO} (editable) y se abre o
+ * cierra de forma explícita por ADMIN.
  */
 @Entity
-@Table(name = "periodos_academicos")
-public class PeriodoAcademico extends Auditable {
+@Table(name = "anios_escolares",
+        uniqueConstraints = {
+                @UniqueConstraint(columnNames = "anio"),
+                @UniqueConstraint(columnNames = "nombre")
+        })
+public class AnioEscolar extends Auditable {
 
     public enum Estado {
+        PLANIFICADO,
         ABIERTO,
         CERRADO
     }
 
-    @Column(unique = true, nullable = false)
-    private String nombre; // Ej.: "Bimestre I, 2026"
+    @Column(nullable = false)
+    private Integer anio; // 2026
 
     @Column(nullable = false)
-    private LocalDate fechaInicio;
+    private String nombre; // "Año Escolar 2026"
 
     @Column(nullable = false)
-    private LocalDate fechaFin;
+    private LocalDate fechaInicio; // primer día de clases
+
+    @Column(nullable = false)
+    private LocalDate fechaFin; // último día de clases
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -38,18 +43,37 @@ public class PeriodoAcademico extends Auditable {
 
     // Constructors
 
-    public PeriodoAcademico() {
-        this.estado = Estado.CERRADO; // nace cerrado: se abre a propósito
+    public AnioEscolar() {
+        this.estado = Estado.PLANIFICADO;
     }
 
-    public PeriodoAcademico(String nombre, LocalDate fechaInicio, LocalDate fechaFin) {
+    public AnioEscolar(Integer anio, String nombre, LocalDate fechaInicio, LocalDate fechaFin) {
         this();
+        this.anio = anio;
         this.nombre = nombre;
         this.fechaInicio = fechaInicio;
         this.fechaFin = fechaFin;
     }
 
+    // Helpers
+
+    public boolean estaAbierto() {
+        return estado == Estado.ABIERTO;
+    }
+
+    public boolean estaCerrado() {
+        return estado == Estado.CERRADO;
+    }
+
     // Getters and Setters
+
+    public Integer getAnio() {
+        return anio;
+    }
+
+    public void setAnio(Integer anio) {
+        this.anio = anio;
+    }
 
     public String getNombre() {
         return nombre;
@@ -85,8 +109,9 @@ public class PeriodoAcademico extends Auditable {
 
     @Override
     public String toString() {
-        return "PeriodoAcademico{" +
+        return "AnioEscolar{" +
                 "id=" + getId() +
+                ", anio=" + anio +
                 ", nombre='" + nombre + '\'' +
                 ", fechaInicio=" + fechaInicio +
                 ", fechaFin=" + fechaFin +

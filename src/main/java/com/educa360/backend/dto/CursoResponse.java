@@ -5,7 +5,7 @@ import com.educa360.backend.entity.Curso;
 import java.time.LocalDateTime;
 
 /**
- * Ficha de un curso para el panel: Matemática · 3°A · docente · período.
+ * Ficha de un curso para el panel: Matemática · 3°A · docente · año.
  * El horario no viaja aquí: se pinta por separado (GET /admin/cursos/{id}/horario).
  */
 public record CursoResponse(
@@ -16,8 +16,8 @@ public record CursoResponse(
         String materiaNombre,
         Long seccionId,
         String seccionEtiqueta, // "3°A"
-        Long periodoId,
-        String periodoNombre,
+        Long anioId,
+        String anioNombre,
         LocalDateTime createdAt
 ) {
     public static CursoResponse desde(Curso curso) {
@@ -30,8 +30,8 @@ public record CursoResponse(
                 curso.getMateria().getNombre(),
                 curso.getSeccion().getId(),
                 curso.getSeccion().getEtiqueta(),
-                curso.getSeccion().getPeriodo().getId(),
-                curso.getSeccion().getPeriodo().getNombre(),
+                curso.getSeccion().getAnio().getId(),
+                curso.getSeccion().getAnio().getNombre(),
                 curso.getCreatedAt()
         );
     }

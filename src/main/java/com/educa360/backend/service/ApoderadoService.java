@@ -165,7 +165,7 @@ public class ApoderadoService {
                 estudiante.getUser().getDni(),
                 estudiante.getUser().getEmail(),
                 vigente.map(matricula -> matricula.getSeccion().getEtiqueta()).orElse(null),
-                vigente.map(matricula -> matricula.getSeccion().getPeriodo().getNombre()).orElse(null),
+                vigente.map(matricula -> matricula.getSeccion().getAnio().getNombre()).orElse(null),
                 vigente.map(Matricula::getEstado).orElse(null),
                 vinculo.getParentesco(),
                 vinculo.isResponsablePrincipal()

@@ -73,6 +73,10 @@ public class CursoService {
         Materia materia = materiaService.buscar(request.materiaId());
         Seccion seccion = seccionService.buscar(request.seccionId());
 
+        if (seccion.getAnio().estaCerrado()) {
+            throw new ConflictException("El año " + seccion.getAnio().getAnio()
+                    + " está CERRADO: no se pueden crear cursos");
+        }
         if (!materia.isActiva()) {
             throw new ConflictException("La materia '" + materia.getNombre()
                     + "' está desactivada: reactívala antes de crear el curso");
@@ -143,6 +147,12 @@ public class CursoService {
     @Transactional
     public void eliminar(Long id) {
         Curso curso = buscar(id);
+        if (curso.getSeccion().getAnio().estaCerrado()) {
+            throw new ConflictException("El año " + curso.getSeccion().getAnio().getAnio()
+                    + " está CERRADO: no se pueden eliminar cursos");
+        }
+        // TODO M5/M6: bloquear con 409 si el curso ya tiene asistencias,
+        // calificaciones, unidades o materiales. Esas entidades aún no existen.
         horarioRepository.deleteByCurso(curso); // primero los bloques: tienen FK al curso
         cursoRepository.delete(curso);
     }
@@ -151,6 +161,27 @@ public class CursoService {
 
     @Transactional(readOnly = true)
     public List<HorarioBloqueResponse> listarHorario(Long cursoId) {
+        buscar(cursoId); // 404 si el curso no existe
+        return horarioRepository.findByCursoId(cursoId).stream()
+                .map(HorarioBloqueResponse::desde)
+                .toList();
+    }
+
+    /**
+     * Horario de un curso para su DOCENTE dueño. La identidad sale del token:
+     * un docente no puede consultar el horario de un curso ajeno.
+     */
+    @Transactional(readOnly = true)
+    public List<HorarioBloqueResponse> listarHorarioDelDocente(String email, Long cursoId) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
+        Docente docente = docenteRepository.findByUser(user)
+                .orElseThrow(() -> new NotFoundException("El usuario no tiene perfil Docente"));
+        Curso curso = buscar(cursoId);
+        if (!curso.getDocente().getId().equals(docente.getId())) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "El curso " + cursoId + " no pertenece a este docente");
+        }
         return horarioRepository.findByCursoId(cursoId).stream()
                 .map(HorarioBloqueResponse::desde)
                 .toList();
@@ -167,6 +198,13 @@ public class CursoService {
     @Transactional
     public List<HorarioBloqueResponse> reemplazarHorario(Long cursoId, HorarioRequest request) {
         Curso curso = buscar(cursoId);
+
+        if (curso.getSeccion().getAnio().estaCerrado()) {
+            throw new ConflictException("El año " + curso.getSeccion().getAnio().getAnio()
+                    + " está CERRADO: no se puede modificar el horario");
+        }
+        // TODO M5: si el curso ya tiene asistencias, la hoja no se puede
+        // reemplazar (409). La entidad Asistencia aún no existe.
 
         List<HorarioBloque> nuevos = request.bloques().stream()
                 .map(b -> new HorarioBloque(curso, b.dia(), b.horaInicio(), b.horaFin()))

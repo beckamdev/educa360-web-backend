@@ -10,7 +10,7 @@ import java.util.List;
  *
  * Cada rol pinta lo suyo y el resto queda null:
  * - DOCENTE: título y materias habilitadas (Módulo 2);
- * - ESTUDIANTE: su sección del período vigente (Módulo 3);
+ * - ESTUDIANTE: su sección del año vigente (Módulo 3);
  * - APODERADO: sus hijos (Módulo 3);
  * - ADMIN/SECRETARIA: null.
  */
@@ -18,7 +18,7 @@ public record MePerfilResponse(
         String titulo,                      // DOCENTE
         List<MateriaResponse> materias,     // DOCENTE
         String seccionEtiqueta,             // ESTUDIANTE
-        String periodoNombre,               // ESTUDIANTE
+        String anioNombre,                  // ESTUDIANTE
         Matricula.Estado matriculaEstado,   // ESTUDIANTE
         List<HijoResponse> hijos            // APODERADO
 ) {
@@ -26,9 +26,9 @@ public record MePerfilResponse(
         return new MePerfilResponse(titulo, materias, null, null, null, null);
     }
 
-    public static MePerfilResponse estudiante(String seccionEtiqueta, String periodoNombre,
+    public static MePerfilResponse estudiante(String seccionEtiqueta, String anioNombre,
                                               Matricula.Estado matriculaEstado) {
-        return new MePerfilResponse(null, null, seccionEtiqueta, periodoNombre, matriculaEstado, null);
+        return new MePerfilResponse(null, null, seccionEtiqueta, anioNombre, matriculaEstado, null);
     }
 
     public static MePerfilResponse apoderado(List<HijoResponse> hijos) {

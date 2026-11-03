@@ -3,15 +3,15 @@ package com.educa360.backend.service;
 import com.educa360.backend.dto.MatriculaEstadoRequest;
 import com.educa360.backend.dto.MatriculaRequest;
 import com.educa360.backend.dto.MatriculaResponse;
+import com.educa360.backend.entity.AnioEscolar;
 import com.educa360.backend.entity.Estudiante;
 import com.educa360.backend.entity.Matricula;
-import com.educa360.backend.entity.PeriodoAcademico;
 import com.educa360.backend.entity.Seccion;
 import com.educa360.backend.exception.ConflictException;
 import com.educa360.backend.exception.NotFoundException;
+import com.educa360.backend.repository.AnioEscolarRepository;
 import com.educa360.backend.repository.EstudianteRepository;
 import com.educa360.backend.repository.MatriculaRepository;
-import com.educa360.backend.repository.PeriodoAcademicoRepository;
 import com.educa360.backend.repository.SeccionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,18 +19,20 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Optional;
 
 /**
- * Matrículas: el estudiante queda inscrito en una sección de un período.
+ * Matrículas: el estudiante queda inscrito en una sección de un año.
  *
  * Reglas que gobierna (Gestión de matrículas = SECRETARIA, §3):
- * - nace PENDIENTE; SÓLO SECRETARIA la pasa a PAGADO (su acción, no automática);
  * - única por (estudiante, sección) — el unique está en la tabla;
- * - un estudiante no puede tener DOS matriculas en el MISMO período:
- *   ir de 3°A a 3°B es un traslado, no una segunda inscripción;
+ * - un estudiante no puede tener DOS matrículas en el MISMO año:
+ *   ir de 3°A a 3°B es un cambio de sección, no una segunda inscripción;
  * - sólo alumnos habilitados (Estudiante.estado = ACTIVO).
  *
- * "Matrícula vigente" = la del período ABIERTO (el vigente, §5): es la que
- * da sección al alumno para /estudiante/cursos, su ficha y los hijos del
- * apoderado. Sin período abierto no hay vigente.
+ * "Matrícula vigente" = la del año ABIERTO (el vigente): es la que da
+ * sección al alumno para /estudiante/cursos, su ficha y los hijos del
+ * apoderado. Sin año abierto no hay vigente.
+ *
+ * TODO M3: reemplazar el estado PENDIENTE/PAGADO por situacionFinal
+ * (EN_CURSO/APROBADO/DESAPROBADO/RETIRADO) y añadir fechaMatricula.
  */
 @Service
 public class MatriculaService {
@@ -38,16 +40,16 @@ public class MatriculaService {
     private final MatriculaRepository matriculaRepository;
     private final EstudianteRepository estudianteRepository;
     private final SeccionRepository seccionRepository;
-    private final PeriodoAcademicoRepository periodoRepository;
+    private final AnioEscolarRepository anioRepository;
 
     public MatriculaService(MatriculaRepository matriculaRepository,
                             EstudianteRepository estudianteRepository,
                             SeccionRepository seccionRepository,
-                            PeriodoAcademicoRepository periodoRepository) {
+                            AnioEscolarRepository anioRepository) {
         this.matriculaRepository = matriculaRepository;
         this.estudianteRepository = estudianteRepository;
         this.seccionRepository = seccionRepository;
-        this.periodoRepository = periodoRepository;
+        this.anioRepository = anioRepository;
     }
 
     /** Alta desde Secretaría: 404 si no existe el alumno o la sección, 409 por reglas. */
@@ -58,6 +60,10 @@ public class MatriculaService {
         Seccion seccion = seccionRepository.findById(datos.seccionId())
                 .orElseThrow(() -> new NotFoundException("La sección " + datos.seccionId() + " no existe"));
 
+        if (seccion.getAnio().estaCerrado()) {
+            throw new ConflictException("El año " + seccion.getAnio().getAnio()
+                    + " está CERRADO: no se pueden crear matrículas");
+        }
         if (!estudiante.estaHabilitado()) {
             throw new ConflictException("El estudiante está " + estudiante.getEstado().name()
                     + ": sólo se matriculan alumnos ACTIVOS");
@@ -65,11 +71,11 @@ public class MatriculaService {
         if (matriculaRepository.existsByEstudianteAndSeccion(estudiante, seccion)) {
             throw new ConflictException("El estudiante ya está matriculado en esa sección");
         }
-        if (matriculaRepository.existsByEstudianteIdAndSeccionPeriodoId(
-                estudiante.getId(), seccion.getPeriodo().getId())) {
-            throw new ConflictException("El estudiante ya tiene una matrícula en el período "
-                    + seccion.getPeriodo().getNombre()
-                    + ": cambiar de sección dentro del mismo período es un traslado");
+        if (matriculaRepository.existsByEstudianteIdAndSeccionAnioId(
+                estudiante.getId(), seccion.getAnio().getId())) {
+            throw new ConflictException("El estudiante ya tiene una matrícula en el año "
+                    + seccion.getAnio().getNombre()
+                    + ": cambiar de sección dentro del mismo año es un traslado");
         }
 
         return MatriculaResponse.desde(matriculaRepository.save(new Matricula(estudiante, seccion)));
@@ -85,13 +91,13 @@ public class MatriculaService {
     }
 
     /**
-     * La matrícula vigente del alumno: la del período ABIERTO.
-     * Sin período abierto (o sin matrícula) → vacío.
+     * La matrícula vigente del alumno: la del año ABIERTO.
+     * Sin año abierto (o sin matrícula) → vacío.
      */
     @Transactional(readOnly = true)
     public Optional<Matricula> vigenteDe(Long estudianteId) {
-        return periodoRepository.findByEstado(PeriodoAcademico.Estado.ABIERTO)
-                .flatMap(periodo ->
-                        matriculaRepository.findByEstudianteIdAndSeccionPeriodoId(estudianteId, periodo.getId()));
+        return anioRepository.findByEstado(AnioEscolar.Estado.ABIERTO)
+                .flatMap(anio ->
+                        matriculaRepository.findByEstudianteIdAndSeccionAnioId(estudianteId, anio.getId()));
     }
 }

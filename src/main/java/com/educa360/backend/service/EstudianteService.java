@@ -109,7 +109,7 @@ public class EstudianteService {
                 estudiante.getEstado(),
                 user.isActivo(),
                 vigente.map(matricula -> matricula.getSeccion().getEtiqueta()).orElse(null),
-                vigente.map(matricula -> matricula.getSeccion().getPeriodo().getNombre()).orElse(null),
+                vigente.map(matricula -> matricula.getSeccion().getAnio().getNombre()).orElse(null),
                 vigente.map(Matricula::getEstado).orElse(null),
                 apoderados
         );
