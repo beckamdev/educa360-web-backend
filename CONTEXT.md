@@ -1,196 +1,1654 @@
 # Contexto del Proyecto: Educa360 (Backend)
 
-## 1. Visión General del Proyecto
-- **Nombre:** Educa360
+> **Documento vivo — v3 (simplificado)**
+> Última actualización: 2026-11-02
+> Este archivo es la **fuente de verdad** del dominio, las reglas de negocio y el roadmap.
+> Si el código y este documento difieren, se corrigen ambos en el mismo cambio.
+
+---
+
+## 0. Cómo leer este documento
+
+| Sección | Contenido |
+|---|---|
+| §1 | Visión general y alcance |
+| §2 | Stack, arquitectura y convenciones |
+| §3 | Modelo de dominio |
+| §4 | Roles, permisos y reglas de acceso |
+| §5 | Módulos, endpoints y criterios de aceptación |
+| §6 | Flujos principales |
+| §7 | Base de datos y migraciones |
+| §8 | Convenciones de API |
+| §9 | Testing y CI |
+| §10 | Operación y entorno |
+| §11 | Estado actual y roadmap |
+| §12 | Decisiones, supuestos y limitaciones |
+| §13 | Registro de cambios |
+
+### 0.1. Glosario
+
+| Término | Significado en Educa360 |
+|---|---|
+| **Año escolar** | Período anual completo (ej. 2026). Ancla secciones, cursos, horarios y matrículas. Reemplaza al antiguo `PeriodoAcademico`, que representaba un bimestre. |
+| **Bimestre** | Etapa de evaluación dentro del año (I–IV). Ventana donde viven unidades, notas y asistencia. |
+| **Materia** | Catálogo de lo que se enseña (Matemática, Física, etc.). No depende del año. |
+| **Sección** | Grupo de alumnos de un año (3°A). Dura todo el año. |
+| **Curso** | Instancia de una materia en una sección, con un docente (Matemática · 3°A · profe X). Cuelgan horario, unidades, materiales, asistencias y notas. |
+| **Matrícula** | Registro anual del alumno en una sección. Una por alumno y año. |
+| **Unidad** | Planificación de un curso dentro de un bimestre. Agrupa contenidos y calificaciones. |
+| **Contenido** | Tema o subtema planificado dentro de una unidad. No es una clase dictada. |
+| **Asistencia** | Registro de un alumno en un bloque de horario y una fecha. |
+| **Calificación** | Nota vigesimal (0–20) de un alumno en un criterio de una unidad. |
+| **Ticket** | Solicitud de justificación de inasistencia creada por el apoderado y resuelta por Secretaría. |
+| **Material** | Archivo o enlace publicado por el docente para un curso, opcionalmente ligado a un contenido. |
+| **Comunicado** | Mensaje del docente a su sección, de Secretaría a toda la institución o del ADMIN a toda la institución o a una sección. |
+
+### 0.2. Estados de madurez
+
+- ✅ **Implementado:** existe en código y cumple lo aquí descrito.
+- 🔧 **Refactor:** existe, pero cambia de semántica o de estructura.
+- 🆕 **Pendiente:** diseñado aquí, aún no implementado.
+- 📋 **Diferido:** reconocido, fuera del alcance de la v3.
+
+---
+
+## 1. Visión general
+
+- **Nombre:** Educa360.
 - **Institución objetivo:** Colegio Nuestra Señora de Monserrat (Nivel Secundaria).
-- **Propósito:** Sistema web integral para la gestión académica, seguimiento estudiantil en tiempo real y comunicación bidireccional entre la institución, docentes, estudiantes y apoderados.
-- **Tipo de aplicación:** API RESTful desacoplada para dar soporte a un cliente SPA (React + Vite).
+- **Propósito:** gestión académica, seguimiento estudiantil y comunicación entre institución, docentes, estudiantes y apoderados.
+- **Tipo de aplicación:** API RESTful desacoplada para un SPA (React + Vite).
+- **Alcance académico:** secundaria, grados 1 a 5.
+- **Idioma del dominio:** español. Las clases técnicas pueden usar inglés (`Service`, `Repository`, `Controller`), pero las entidades y reglas se nombran en español.
+
+### 1.1. Fuera de alcance de la v3
+
+- Pensiones, cuotas, pasarela de pagos o cobranza.
+- Reprogramación de clases: no se modelan sesiones reales ni clases movidas de fecha.
+- Cambios de sección después de iniciado el año: la matrícula queda fijada.
+- Aplicación móvil nativa.
+- Primaria o inicial.
+- Firma digital de actas.
+- Notificaciones push o correo transaccional.
+- Integración con sistemas externos del Ministerio.
+
+### 1.2. Principios de diseño
+
+1. **Una sola fuente de verdad por concepto.** Si algo se puede derivar, no se duplica sin razón.
+2. **La identidad sale del token.** Los endpoints de estudiante, apoderado y docente no reciben ids de identidad desde el cliente para decidir qué datos devolver.
+3. **El rol no basta.** Además del rol, se valida la pertenencia al recurso (ownership).
+4. **Lo histórico no se borra.** Personas, matrículas, notas y asistencias se corrigen o se desactivan; no se eliminan físicamente.
+5. **La configuración del año sí se puede borrar** si no tiene historia.
+6. **Toda regla de negocio vive en el servicio.** La BD refuerza lo que pueda reforzar.
+7. **Los DTO son records** y no se exponen entidades JPA.
 
 ---
 
-## 2. Stack Tecnológico Backend
-- **Lenguaje:** Java 25.
-- **Framework:** Spring Boot **4.1.1** (Spring WebMVC, Spring Security, Spring Data JPA).
-- **Autenticación y Autorización:** Stateless con JWT (JSON Web Tokens) y RBAC (Control de acceso basado en roles).
-- **Base de Datos:** **PostgreSQL 17** — en desarrollo corre en Docker (`docker-compose.yml`); en producción se apunta a Supabase.
-- **Almacenamiento de Archivos:** Supabase Storage (Buckets para sustentos en PDF/imágenes y material de clase).
-- **Documentación API:** Swagger / OpenAPI 3 (springdoc-openapi).
-- **Gestor de Dependencias:** Maven.
-- **Arquitectura de Software:** Arquitectura en capa limpia:
-  - `controller`: Endpoints REST, validación DTO (`@Valid`).
-  - `service`: Lógica de negocio transaccional (`@Transactional`).
-  - `repository`: Interfaces Spring Data JPA (`JpaRepository`).
-  - `entity`: Modelos JPA / Tablas relacionales. Todas las entidades extienden de `Auditable` (`id`, `createdAt`, `updatedAt`).
-  - `dto`: Request/Response records para desacoplar el modelo y no exponer entidades.
-  - `security`: `SecurityConfig` (SecurityFilterChain + CORS), `JwtService`, `JwtAuthenticationFilter`, `AppUserDetailsService`.
-  - `service`: `AuthService` (login, registro, `/me`) y `LoginAttemptService` (límite de intentos de login).
-  - `exception`: `GlobalExceptionHandler` (`@RestControllerAdvice`), `ApiError`, `ConflictException` (409) y `RateLimitedException` (429).
-- **Pruebas:** JUnit 5 + MockMvc + **Testcontainers** (PostgreSQL 17 efímera por clase: no toca la BD de desarrollo). `./mvnw test` → 79 tests, ejecutados por el CI (GitHub Actions) en cada push.
-- **Entorno:** Docker Compose (`docker compose up -d` → Postgres + backend). Los secretos viven en `.env` (no versionado; su plantilla vacía es `.env.example`) y el backend **no arranca** sin `APP_JWT_SECRET`. Postgres sólo escucha en `127.0.0.1`.
+## 2. Stack, arquitectura y convenciones
+
+### 2.1. Stack
+
+| Pieza | Tecnología |
+|---|---|
+| Lenguaje | Java 25 |
+| Framework | Spring Boot 4.1.1 (WebMVC, Security, Data JPA) |
+| Autenticación | JWT stateless + RBAC |
+| Base de datos | PostgreSQL 17 |
+| Migraciones | Flyway **solo en la fase final**; durante el desarrollo se recrea la BD |
+| Almacenamiento | Supabase Storage (buckets privados) |
+| Documentación | springdoc-openapi / Swagger UI |
+| Dependencias | Maven |
+| Pruebas | JUnit 5 + MockMvc + Testcontainers (PostgreSQL 17) |
+| Contenedores | Docker Compose |
+
+### 2.2. Arquitectura en capas
+
+```text
+controller  →  service  →  repository  →  entity
+     ↑             ↑
+     └── dto ──────┘
+```
+
+- `controller`: endpoints REST, validación con `@Valid`, autorización con `@PreAuthorize`.
+- `service`: lógica de negocio transaccional (`@Transactional`), reglas, ownership.
+- `repository`: interfaces Spring Data JPA.
+- `entity`: modelos JPA. Todas las entidades extienden `Auditable`.
+- `dto`: records de request/response.
+- `security`: `SecurityConfig`, `JwtService`, `JwtAuthenticationFilter`, `AppUserDetailsService`.
+- `exception`: `GlobalExceptionHandler`, `ApiError`, `ConflictException`, `RateLimitedException`.
+
+### 2.3. Convenciones
+
+- Paquete base: `com.educa360.backend`.
+- Entidades y campos de dominio en español (`Estudiante`, `Matricula`, `fechaNacimiento`).
+- Clases técnicas en inglés (`EstudianteService`, `EstudianteRepository`, `EstudianteController`).
+- DTOs: `XxxRequest`, `XxxResponse`, `XxxResumenResponse`.
+- Fechas: `LocalDate` para fechas sin hora; `LocalDateTime` para marcas de tiempo.
+- Notas: `BigDecimal` con escala 2.
+- Enums persistidos como `STRING`.
+- `@Transactional` en servicios que escriben más de una tabla.
+- `flush()` explícito cuando una constraint unique pueda ver filas viejas antes de borrarlas.
+- Getters/setters explícitos y `toString` seguro (solo ids).
+
+### 2.4. Auditoría
+
+`Auditable` provee:
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `id` | Long | IDENTITY |
+| `createdAt` | LocalDateTime | automático al crear |
+| `updatedAt` | LocalDateTime | automático al actualizar |
+
+Entidades con responsabilidad explícita:
+- `Asistencia.registradoPor` (Docente).
+- `Calificacion.registradoPor` (Docente).
+- `TicketJustificacion.resueltoPor` (Secretaria).
+- `MaterialClase.docente` (quien publica).
+- `Comunicado.autor` (User).
+
+### 2.5. Errores uniformes
+
+Todas las respuestas de error usan `ApiError`:
+
+```json
+{
+  "timestamp": "2026-11-02T10:15:30",
+  "status": 409,
+  "error": "Conflict",
+  "message": "Ya existe una matrícula para este estudiante en el año 2026",
+  "path": "/api/v1/secretaria/matriculas",
+  "details": []
+}
+```
+
+Códigos:
+- `400`: validación de DTO, cuerpo ilegible, regla de negocio inválida.
+- `401`: credenciales inválidas o token ausente/expirado.
+- `403`: usuario inactivo o sin permiso.
+- `404`: recurso inexistente.
+- `405`: método no permitido.
+- `409`: conflicto de unicidad, estado o regla de negocio.
+- `415`: `Content-Type` incorrecto.
+- `429`: límite de intentos de login.
+- `500`: fallo inesperado, sin stack trace.
 
 ---
 
-## 3. Roles del Sistema (RBAC)
-1. `ADMIN` (Coordinación / Dirección):
-   - Gestión de usuarios del personal (docentes, secretarias, otros administradores).
-   - Apertura y gestión de periodos lectivos (bimestres), cursos, materias, aulas y asignación docente.
-   - Definición del contenido institucional (materias, recursos, comunicados globales).
-   - Acceso a reportes y métricas analíticas globales.
-   - **No** gestiona tickets de justificación: esa responsabilidad está delegada a `SECRETARIA`.
-2. `SECRETARIA` (Personal administrativo):
-   - Evaluación y resolución de **tickets de justificación de inasistencia** (Aprobar / Rechazar).
-   - Registro de estudiantes: creación de ficha y gestión de su estado académico (`ACTIVO`, `TRASLADADO`, `RETIRADO`, `EGRESADO`).
-   - Gestión de matrículas y pensiones: cambio de estado a **`PAGADO`** (y los estados que defina el sistema).
-   - Soporte operativo del alumnado: consulta y actualización de los datos académicos del alumno.
-3. `DOCENTE`:
-   - Registro de asistencia por sesión lectiva (Presente, Tardanza, Falta, Falta Justificada).
-   - Registro y cálculo de calificaciones en escala vigesimal (0–20).
-   - Publicación de recursos didácticos por sesión/semana.
-   - Emisión de comunicados específicos para sus secciones o cursos.
-4. `ESTUDIANTE`:
-   - Consulta de sus propias calificaciones y promedios en tiempo real.
-   - Consulta de su historial de asistencias y faltas acumuladas.
-   - Descarga de materiales de clase.
-   - Visualización de comunicados dirigidos a su aula o generales.
-5. `APODERADO`:
-   - Supervisión del rendimiento académico y notas vigesimales de su(s) hijo(s).
-   - Visualización del registro diario de asistencia para detección temprana de ausentismo.
-   - Creación y seguimiento de **Tickets de Justificación de Inasistencia** (adjuntando URL/comprobante de Supabase Storage).
-   - Recepción de comunicados institucionales y citaciones.
+## 3. Modelo de dominio
+
+### 3.1. Jerarquía académica
+
+```text
+AnioEscolar (ej. 2026)
+ ├── Bimestre (I..IV)
+ ├── Seccion (3°A) ── Matricula (alumno en el año)
+ │     └── Curso (materia + docente) ── HorarioBloque ── Asistencia
+ │           └── Unidad (curso × bimestre)
+ │                 ├── Contenido ── MaterialClase
+ │                 └── Calificacion
+ └── TicketJustificacion (por alumno y fecha)
+```
+
+Reglas estructurales:
+
+1. `AnioEscolar` es el ancla anual. Secciones, cursos, horarios y matrículas se crean una vez por año.
+2. `Bimestre` divide el año en ventanas de evaluación.
+3. `Seccion` pertenece a un año. `Curso` pertenece a una sección; por transitividad, a un año.
+4. `Matricula` es anual y une alumno + sección + año.
+5. Asistencia y calificaciones cuelgan de `Matricula`, no del estudiante suelto.
+6. `HorarioBloque` es la plantilla semanal. No hay entidad de sesión real: la asistencia se registra por bloque y fecha.
+7. `Unidad` y `Calificacion` dan estructura a las notas; `Contenido` y `MaterialClase` a los recursos.
+
+### 3.2. Entidades
+
+#### 3.2.1. Identidad y personas
+
+##### `User` ✅ — tabla `users`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `email` | String | único, obligatorio, minúsculas, formato email |
+| `password` | String | obligatorio, BCrypt, nunca se expone |
+| `nombres` | String | obligatorio |
+| `apellidos` | String | obligatorio |
+| `dni` | String | único, obligatorio, 8 dígitos |
+| `rol` | enum `Role` | `ADMIN`, `SECRETARIA`, `DOCENTE`, `ESTUDIANTE`, `APODERADO` |
+| `activo` | boolean | por defecto `true`; única baja lógica de la cuenta |
+
+Relaciones:
+- **1—N** `Telefono` (cascade ALL, orphanRemoval).
+- **1—0..1** con cada perfil (`Docente`, `Estudiante`, `Apoderado`, `Secretaria`).
+- `ADMIN` no tiene tabla de perfil.
+
+Reglas:
+- El rol es inmutable.
+- No se elimina físicamente. `activo=false` corta el acceso.
+- Email y DNI se validan en `UsuarioService.crearCuenta()`.
+
+##### `Telefono` ✅ — tabla `telefonos`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `numero` | String | obligatorio |
+| `user_id` | FK → `User` | obligatorio |
+
+Único `(user_id, numero)`. Regla: `ESTUDIANTE` no registra teléfonos propios.
+
+##### `Docente` ✅ — tabla `docentes`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `user_id` | FK → `User` | única, obligatoria, 1—1 |
+| `titulo` | String | opcional |
+
+Relaciones:
+- **N—N** `Materia` por `docente_materia` (único `(docente_id, materia_id)`).
+- **1—N** `Curso`.
+- **1—N** `Seccion` como tutor (opcional).
+
+Regla: no se desactiva la cuenta de un docente con cursos en el año `ABIERTO` sin reasignar o cerrar esos cursos.
+
+##### `Estudiante` ✅ — tabla `estudiantes`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `user_id` | FK → `User` | única, obligatoria, 1—1 |
+| `fechaNacimiento` | LocalDate | obligatoria |
+| `estado` | enum | `ACTIVO`, `TRASLADADO`, `RETIRADO`, `EGRESADO` |
+
+Relaciones:
+- **1—N** `Matricula`.
+- **N—N** `Apoderado` por `ApoderadoEstudiante`.
+- **1—N** `TicketJustificacion`.
+
+Reglas:
+- `estado` es el ciclo de vida institucional, distinto de `Matricula.situacionFinal`.
+- `estaHabilitado()` = `estado == ACTIVO`.
+- `EGRESADO` es terminal.
+- `TRASLADADO` o `RETIRADO` pueden volver a `ACTIVO` por acción de `SECRETARIA` si el alumno reingresa; se reactiva la matrícula del año si sigue abierta o se crea una nueva si cambió de año.
+- Retirar académicamente no desactiva la cuenta automáticamente: `User.activo` es una baja de acceso separada.
+
+##### `Apoderado` ✅ — tabla `apoderados`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `user_id` | FK → `User` | única, obligatoria, 1—1 |
+
+Relaciones:
+- **1—N** `ApoderadoEstudiante` (cascade ALL).
+- **1—N** `TicketJustificacion`.
+
+##### `Secretaria` ✅ — tabla `secretarias`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `user_id` | FK → `User` | única, obligatoria, 1—1 |
+
+Relación: **1—N** `TicketJustificacion` como resolutor.
+
+##### `ApoderadoEstudiante` ✅ — tabla `apoderado_estudiante`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `apoderado_id` | FK → `Apoderado` | obligatoria |
+| `estudiante_id` | FK → `Estudiante` | obligatoria |
+| `parentesco` | enum | `PADRE`, `MADRE`, `TUTOR`, `HERMANO`, `OTRO` |
+| `responsablePrincipal` | boolean | obligatorio |
+| `activo` | boolean | por defecto `true` |
+
+Único `(apoderado_id, estudiante_id)`. Solo un responsable principal activo por estudiante (índice único parcial).
+
+#### 3.2.2. Estructura anual
+
+##### `AnioEscolar` 🔧 — tabla `anios_escolares`
+
+> Reemplaza al antiguo `PeriodoAcademico`. El nombre anterior queda como alias histórico y no debe usarse en código nuevo.
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `anio` | Integer | único (2026) |
+| `nombre` | String | único; ej. "Año Escolar 2026" |
+| `fechaInicio` | LocalDate | obligatoria; primer día de clases |
+| `fechaFin` | LocalDate | obligatoria; último día de clases, posterior a inicio |
+| `estado` | enum | `PLANIFICADO`, `ABIERTO`, `CERRADO` |
+
+Relaciones: **1—N** `Bimestre`, `Seccion`, `Matricula`.
+
+Reglas:
+- Solo un año `ABIERTO` en todo el sistema.
+- `PLANIFICADO`: año futuro editable; se puede preparar estructura, pero no registrar asistencia ni notas.
+- `ABIERTO`: año vigente; permite matrícula, asistencia y calificaciones.
+- `CERRADO`: histórico; solo lectura.
+- No se solapa con otro año.
+- No se cierra con bimestres `ABIERTO`.
+- No se elimina si tiene secciones o matrículas.
+- `fechaInicio` marca el primer día de clases y es el corte para cambios de sección: antes de esa fecha se puede cambiar; desde esa fecha, no.
+
+##### `Bimestre` 🆕 — tabla `bimestres`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `anio_id` | FK → `AnioEscolar` | obligatoria |
+| `numero` | Integer | 1..4 |
+| `nombre` | String | derivado de `numero` ("Bimestre I") |
+| `fechaInicio` | LocalDate | obligatoria, dentro del año |
+| `fechaFin` | LocalDate | obligatoria, dentro del año, posterior a inicio |
+| `estado` | enum | `PLANIFICADO`, `ABIERTO`, `CERRADO` |
+
+Único `(anio_id, numero)`. Sin solape dentro del año.
+Reglas:
+- Solo un bimestre `ABIERTO` en todo el sistema.
+- Se abre solo si el año está `ABIERTO`.
+- `PLANIFICADO` es editable; `CERRADO` bloquea nuevas notas y asistencias.
+- Reabrir es una acción explícita de `ADMIN`, auditada.
+- No se elimina si tiene unidades.
+
+##### `Materia` ✅ — tabla `materias`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `nombre` | String | único, obligatorio |
+| `descripcion` | String | opcional |
+| `activa` | boolean | por defecto `true` |
+
+Relaciones: **N—N** `Docente`; **1—N** `Curso`.
+Regla: `activa=false` impide nuevas asignaciones y cursos; los existentes se conservan.
+
+##### `Seccion` 🔧 — tabla `secciones`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `anio_id` | FK → `AnioEscolar` | obligatoria |
+| `grado` | Integer | 1..5 |
+| `letra` | String | una mayúscula `[A-Z]` |
+| `aula` | String | texto libre, opcional |
+| `tutor_id` | FK → `Docente` | opcional |
+
+Único `(anio_id, grado, letra)`.
+Reglas: no se mueve de año; no se elimina si tiene cursos o matrículas.
+
+##### `Curso` ✅ — tabla `cursos`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `docente_id` | FK → `Docente` | obligatoria |
+| `materia_id` | FK → `Materia` | obligatoria |
+| `seccion_id` | FK → `Seccion` | obligatoria |
+
+Único `(materia_id, seccion_id)`.
+Reglas:
+- Materia activa y habilitada al docente.
+- Un solo docente por curso.
+- No se elimina si tiene unidades, asistencias, calificaciones o materiales.
+
+##### `HorarioBloque` 🔧 — tabla `horario_bloques`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `curso_id` | FK → `Curso` | obligatoria |
+| `dia` | enum `DiaSemana` | `LUNES`..`SABADO` |
+| `horaInicio` | LocalTime | obligatoria |
+| `horaFin` | LocalTime | obligatoria, posterior a inicio |
+
+Único `(curso_id, dia, hora_inicio)`. Intervalos `[inicio, fin)`.
+Reglas:
+- Sin solapes con otro curso de la misma sección el mismo día.
+- Sin solapes con otro curso del mismo docente el mismo día.
+- Es una plantilla semanal; no hay sesiones reales ni reprogramaciones.
+- `PUT` reemplaza la hoja completa solo si el curso no tiene asistencias. Si ya tiene, `409`.
+- La asistencia se registra por `(bloque, fecha)` y exige que la fecha caiga en el día del bloque.
+
+#### 3.2.3. Matrícula
+
+##### `Matricula` 🔧 — tabla `matriculas`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `estudiante_id` | FK → `Estudiante` | obligatoria |
+| `anio_id` | FK → `AnioEscolar` | obligatoria |
+| `seccion_id` | FK → `Seccion` | obligatoria |
+| `fechaMatricula` | LocalDate | obligatoria |
+| `situacionFinal` | enum | `EN_CURSO`, `APROBADO`, `DESAPROBADO`, `RETIRADO` |
+| `observacion` | String | opcional |
+
+Único `(estudiante_id, anio_id)`.
+Relaciones: **N—1** `Estudiante`, `AnioEscolar`, `Seccion`; **1—N** `Asistencia`, `Calificacion`.
+
+Reglas:
+- Es el registro anual. No hay módulo de pagos, pensiones ni cuotas.
+- Solo alumnos `ACTIVO` pueden matricularse.
+- La sección debe pertenecer al mismo año.
+- Nace `EN_CURSO`.
+- `RETIRADO` se asigna al retirar al alumno; `APROBADO`/`DESAPROBADO` al cerrar el año.
+- No se elimina; se corrige o se cambia de estado.
+- **Limitación:** no hay traslados una vez iniciado el año. La sección puede modificarse solo antes de `AnioEscolar.fechaInicio` (primer día de clases) y mientras no exista ninguna asistencia ni calificación. Al iniciar clases, la matrícula queda fijada.
+
+#### 3.2.4. Planificación docente
+
+##### `Unidad` 🆕 — tabla `unidades`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `curso_id` | FK → `Curso` | obligatoria |
+| `bimestre_id` | FK → `Bimestre` | obligatoria; mismo año que la sección del curso |
+| `numero` | Integer | orden dentro del curso y bimestre |
+| `titulo` | String | obligatorio |
+| `descripcion` | String (text) | opcional |
+| `fechaInicio` | LocalDate | opcional, dentro del bimestre |
+| `fechaFin` | LocalDate | opcional, dentro del bimestre |
+| `estado` | enum | `BORRADOR`, `PUBLICADA` |
+
+Único `(curso_id, bimestre_id, numero)`.
+Reglas:
+- Solo el docente del curso crea/edita sus unidades.
+- Se puede planificar en un bimestre `PLANIFICADO` o `ABIERTO`; no en `CERRADO`.
+- El estudiante y el apoderado solo ven unidades `PUBLICADA`.
+- No se elimina si tiene calificaciones o contenidos con materiales.
+- Se puede despublicar solo si no tiene calificaciones.
+
+##### `Contenido` 🆕 — tabla `contenidos`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `unidad_id` | FK → `Unidad` | obligatoria |
+| `orden` | Integer | posición dentro de la unidad |
+| `titulo` | String | obligatorio |
+| `descripcion` | String (text) | opcional |
+| `fechaPrevista` | LocalDate | opcional |
+
+Único `(unidad_id, orden)`.
+Reglas:
+- Es un tema planificado, no una clase dictada.
+- Reordenar se hace con un endpoint bulk en dos pasadas dentro de la misma transacción (valores temporales y luego definitivos).
+- No se elimina si tiene materiales; se desvinculan o se bloquea la baja.
+
+#### 3.2.5. Asistencia
+
+##### `Asistencia` 🆕 — tabla `asistencias`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `matricula_id` | FK → `Matricula` | obligatoria |
+| `bloque_id` | FK → `HorarioBloque` | obligatoria |
+| `fecha` | LocalDate | obligatoria |
+| `estado` | enum | `PRESENTE`, `TARDANZA`, `FALTA`, `JUSTIFICADA` |
+| `observacion` | String | opcional |
+| `ticket_id` | FK → `TicketJustificacion` | opcional; trazabilidad de la justificación |
+| `registradoPor_id` | FK → `Docente` | opcional |
+
+Único `(matricula_id, bloque_id, fecha)`.
+Reglas:
+- El bloque debe pertenecer a un curso de la sección de la matrícula.
+- La fecha debe caer en el día del bloque y dentro de un bimestre `ABIERTO`.
+- Solo el docente del curso registra asistencia.
+- Si existe un ticket `APROBADO` para el alumno y la fecha (y bloque, si aplica), la asistencia nace o se actualiza a `JUSTIFICADA` y se vincula `ticket_id`.
+- No se elimina; se corrige dejando auditoría.
+- **Limitación:** no hay reprogramaciones. Si una clase se mueve de fecha, el sistema no la representa; se registra solo en el día del bloque.
+
+#### 3.2.6. Calificaciones
+
+##### `Calificacion` 🆕 — tabla `calificaciones`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `matricula_id` | FK → `Matricula` | obligatoria |
+| `unidad_id` | FK → `Unidad` | obligatoria |
+| `criterio` | String | obligatorio; ej. "Examen parcial", "Práctica 1" |
+| `nota` | BigDecimal(4,2) | `0.00` a `20.00` |
+| `registradoPor_id` | FK → `Docente` | opcional |
+
+Único `(matricula_id, unidad_id, criterio)`.
+Reglas:
+- La sección de la matrícula debe ser la sección del curso de la unidad.
+- Solo el docente del curso califica.
+- El bimestre de la unidad debe estar `ABIERTO` para registrar o modificar notas.
+- Escala vigesimal estricta, dos decimales.
+- `createdAt` de `Auditable` es la fecha de registro; no se duplica en un campo aparte.
+- No se elimina; se corrige con auditoría.
+
+##### Cálculo de promedios
+
+- **Promedio de unidad:** promedio simple de sus calificaciones.
+- **Promedio de bimestre (por curso):** promedio simple de las unidades con notas.
+- **Promedio anual (por curso):** promedio simple de los bimestres con notas.
+- **Promedio general del alumno:** promedio simple de los promedios anuales de todos sus cursos. Se usa para reportes y boleta, no para decidir la aprobación.
+- **Aprobación de un curso:** promedio anual del curso ≥ `11.00`.
+- **Aprobación del grado:** todos los cursos deben estar aprobados y la asistencia global del alumno debe ser ≥ `70%`.
+- **Redondeo:** `HALF_UP` a 2 decimales.
+- **Nota aprobatoria:** `11.00`.
+- **Asistencia mínima para aprobar:** `70%`.
+- **Asistencia efectiva:** `PRESENTE + TARDANZA + JUSTIFICADA`. Solo `FALTA` cuenta como inasistencia injustificada. El porcentaje se calcula sobre asistencias registradas.
+- Si falta la información de notas de algún curso, el cierre se bloquea y requiere revisión de `ADMIN`.
+- Los promedios se calculan por consulta; no se guardan snapshots.
+
+#### 3.2.7. Justificaciones
+
+##### `TicketJustificacion` 🆕 — tabla `tickets_justificacion`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `apoderado_id` | FK → `Apoderado` | obligatoria; vínculo activo con el estudiante |
+| `estudiante_id` | FK → `Estudiante` | obligatoria |
+| `fechaInasistencia` | LocalDate | obligatoria; no futura |
+| `bloque_id` | FK → `HorarioBloque` | opcional; si es `NULL`, aplica a todo el día |
+| `motivo` | String | obligatorio |
+| `urlArchivoSustento` | String | ruta/URL de Supabase Storage |
+| `estado` | enum | `PENDIENTE`, `APROBADO`, `RECHAZADO` |
+| `fechaResolucion` | LocalDateTime | al resolver |
+| `resueltoPor_id` | FK → `Secretaria` | opcional hasta resolver |
+| `observacionesAdmin` | String | opcional |
+
+Reglas:
+- Solo el apoderado con vínculo activo crea tickets para su representado.
+- La fecha no puede ser futura.
+- Si se indica `bloque_id`, debe ser de un curso de la sección del alumno.
+- Solo se resuelve desde `PENDIENTE`.
+- Al aprobar: las asistencias `FALTA` del alumno en esa fecha (y bloque, si se indicó) pasan a `JUSTIFICADA` y se vinculan al ticket, en la misma transacción.
+- Si la asistencia se registra después, el servicio la crea directamente como `JUSTIFICADA`.
+- No se permite más de un ticket `PENDIENTE` o `APROBADO` para el mismo alumno, fecha y bloque.
+- Tampoco se permite un ticket de día completo y otro de bloque para la misma fecha del mismo alumno: el alcance más amplio prevalece.
+- No se elimina; los estados son la historia.
+
+#### 3.2.8. Materiales y comunicados
+
+##### `MaterialClase` 🆕 — tabla `materiales_clase`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `curso_id` | FK → `Curso` | obligatoria |
+| `docente_id` | FK → `Docente` | quien publica; debe ser el docente del curso |
+| `contenido_id` | FK → `Contenido` | opcional; si existe, debe ser del mismo curso |
+| `titulo` | String | obligatorio |
+| `descripcion` | String | opcional |
+| `storagePath` | String | ruta en Supabase Storage |
+| `nombreOriginal` | String | nombre del archivo |
+| `mimeType` | String | tipo MIME |
+| `tamanoBytes` | Long | tamaño |
+| `publicado` | boolean | visible para alumnos |
+| `fechaPublicacion` | LocalDateTime | automática al publicar |
+| `activo` | boolean | baja lógica |
+
+Reglas:
+- Solo el docente del curso sube materiales.
+- Un material no publicado solo lo ve el docente y `ADMIN`.
+- Si está ligado a un contenido de unidad `BORRADOR`, no se muestra al alumno aunque `publicado=true`.
+- La baja es lógica y elimina el archivo de Storage de forma diferida.
+
+##### `Comunicado` 🆕 — tabla `comunicados`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `autor_id` | FK → `User` | obligatoria; quién escribió el mensaje |
+| `anio_id` | FK → `AnioEscolar` | obligatoria |
+| `contenido` | String (text) | obligatorio; el mensaje |
+| `seccion_id` | FK → `Seccion` | opcional; `NULL` = general para todo el año |
+| `activo` | boolean | baja lógica |
+
+Reglas:
+- `createdAt` de `Auditable` es la fecha y hora del mensaje; no se duplica en otro campo.
+- `ADMIN` publica mensajes generales (`seccion_id=NULL`) o para una sección.
+- `SECRETARIA` publica solo mensajes generales (`seccion_id=NULL`), para todos los grados.
+- `DOCENTE` publica solo en secciones donde tiene cursos o tutoría.
+- El alumno ve los generales y los de su sección.
+- El apoderado ve los generales y los de la sección de cada hijo activo.
+- No hay `tipo` ni `alcance` separados: el filtro es `seccion_id` (`NULL` = general).
+- No se elimina; se desactiva.
+
+### 3.3. Restricciones e índices de base de datos
+
+Las unicidades simples se declaran con JPA (`@Table(uniqueConstraints=...)`). Las unicidades parciales y los `CHECK` se validan en servicio durante el desarrollo y se materializan en Flyway al final (M11), porque JPA no expresa índices parciales.
+
+| Tabla | Restricción |
+|---|---|
+| `users` | unique `email`, unique `dni` |
+| `telefonos` | unique `(user_id, numero)` |
+| `docentes` | unique `user_id` |
+| `estudiantes` | unique `user_id` |
+| `apoderados` | unique `user_id` |
+| `secretarias` | unique `user_id` |
+| `apoderado_estudiante` | unique `(apoderado_id, estudiante_id)` |
+| `apoderado_estudiante` | unique parcial `(estudiante_id)` where `responsable_principal=true and activo=true` |
+| `anios_escolares` | unique `anio`, unique `nombre` |
+| `anios_escolares` | unique parcial `(estado)` where `estado='ABIERTO'` |
+| `bimestres` | unique `(anio_id, numero)` |
+| `bimestres` | unique parcial `(estado)` where `estado='ABIERTO'` |
+| `secciones` | unique `(anio_id, grado, letra)` |
+| `cursos` | unique `(materia_id, seccion_id)` |
+| `horario_bloques` | unique `(curso_id, dia, hora_inicio)` |
+| `matriculas` | unique `(estudiante_id, anio_id)` |
+| `unidades` | unique `(curso_id, bimestre_id, numero)` |
+| `contenidos` | unique `(unidad_id, orden)` |
+| `asistencias` | unique `(matricula_id, bloque_id, fecha)` |
+| `calificaciones` | unique `(matricula_id, unidad_id, criterio)` |
+| `calificaciones` | check `nota >= 0 and nota <= 20` |
+| `horario_bloques` | check `hora_fin > hora_inicio` |
+| `tickets_justificacion` | unique parcial `(estudiante_id, fecha_inasistencia, coalesce(bloque_id, 0))` where `estado in ('PENDIENTE','APROBADO')` |
+
+Reglas de integridad que se validan en servicio:
+- La sección de `Matricula` pertenece al mismo año que `AnioEscolar`.
+- El bloque de `Asistencia` pertenece a un curso de la sección de la matrícula.
+- La fecha de `Asistencia` cae en el día del bloque y dentro de un bimestre `ABIERTO`.
+- La unidad de `Calificacion` pertenece a un curso de la sección de la matrícula.
+- El bimestre de la unidad está `ABIERTO` para registrar notas.
+- El docente autenticado es el del curso.
+- El apoderado autenticado tiene vínculo activo con el estudiante.
+- El estudiante autenticado tiene matrícula en el año vigente.
+
+### 3.4. Estados y transiciones
+
+#### `AnioEscolar`
+
+```text
+PLANIFICADO → ABIERTO → CERRADO
+                  ↑         │
+                  └─────────┘  (reapertura excepcional de ADMIN, auditada)
+```
+
+- Solo un `ABIERTO`.
+- No se cierra con bimestres abiertos.
+- `CERRADO` es histórico: no admite matrículas, asistencia ni notas nuevas.
+
+#### `Bimestre`
+
+```text
+PLANIFICADO → ABIERTO → CERRADO
+                  ↑         │
+                  └─────────┘  (reapertura excepcional de ADMIN, auditada)
+```
+
+- Solo un `ABIERTO` en todo el sistema.
+- Se abre solo si el año está `ABIERTO`.
+- `PLANIFICADO` es editable; `CERRADO` bloquea notas y asistencia.
+
+#### `Matricula`
+
+```text
+situacionFinal:  EN_CURSO → APROBADO
+                     ├────→ DESAPROBADO
+                     └────→ RETIRADO
+                              │
+                              └──→ EN_CURSO  (reingreso en el mismo año, acción de SECRETARIA)
+```
+
+#### `TicketJustificacion`
+
+```text
+PENDIENTE → APROBADO
+PENDIENTE → RECHAZADO
+```
+
+- No hay vuelta atrás. Una corrección se hace con un nuevo ticket o una acción administrativa auditada.
+
+#### `Unidad`
+
+```text
+BORRADOR → PUBLICADA
+    ↑          │
+    └──────────┘  (solo si no tiene calificaciones)
+```
+
+#### `Asistencia`
+
+```text
+PRESENTE / TARDANZA / FALTA / JUSTIFICADA
+```
+
+- `JUSTIFICADA` requiere `ticket_id` aprobado, salvo corrección administrativa auditada.
+
+#### `Estudiante`
+
+```text
+ACTIVO → TRASLADADO
+   ├───→ RETIRADO
+   └───→ EGRESADO
+
+TRASLADADO → ACTIVO  (reingreso, acción de SECRETARIA)
+RETIRADO   → ACTIVO  (reingreso, acción de SECRETARIA)
+EGRESADO   → (terminal)
+```
+
+- `EGRESADO` se asigna al cerrar el último año aprobado.
+- `TRASLADADO` y `RETIRADO` cierran la matrícula del año.
+- El reingreso reactiva la matrícula si el año sigue abierto o crea una nueva si cambió de año.
+
+### 3.5. Reglas de borrado y archivado
+
+| Entidad | Política |
+|---|---|
+| `User` | Baja lógica (`activo=false`). Nunca borrado físico. |
+| Perfiles (`Docente`, `Estudiante`, `Apoderado`, `Secretaria`) | No se borran; se desactiva la cuenta. |
+| `Telefono` | Se puede quitar de la colección (orphanRemoval). |
+| `ApoderadoEstudiante` | Baja lógica (`activo=false`); re-vincular reactiva. |
+| `AnioEscolar` | No se borra si tiene secciones o matrículas. |
+| `Bimestre` | No se borra si tiene unidades. |
+| `Materia` | Archivado lógico (`activa=false`). |
+| `Seccion` | No se borra si tiene cursos o matrículas. |
+| `Curso` | Baja física solo si no tiene unidades, asistencias, calificaciones ni materiales. |
+| `HorarioBloque` | No se borra si el curso tiene asistencias o si algún ticket lo referencia; el `PUT` de horario devuelve `409` en ese caso. |
+| `Matricula` | No se borra; estados y correcciones. |
+| `Unidad` | No se borra si tiene calificaciones o contenidos con materiales; si no, sus contenidos se eliminan en cascada. |
+| `Contenido` | Se borra solo si no tiene materiales; si tiene, se desvinculan o se bloquea. |
+| `Asistencia` | No se borra; se corrige con auditoría. |
+| `Calificacion` | No se borra; se corrige con auditoría. |
+| `TicketJustificacion` | No se borra; estados. |
+| `MaterialClase` | Baja lógica (`activo=false`) y limpieza diferida en Storage. |
+| `Comunicado` | Baja lógica (`activo=false`). |
+
+### 3.6. Limitaciones de alcance
+
+1. **No hay reprogramaciones:** la asistencia se registra en el día del bloque. Una clase movida de fecha no se representa.
+2. **No hay cambios de sección una vez iniciado el año:** la matrícula queda fijada al llegar `AnioEscolar.fechaInicio`.
+3. **No hay módulo de pagos:** no se modelan pensiones, cuotas ni pasarela. Secretaría solo registra matrícula y estados académicos.
+4. **No hay actas inmutables:** los promedios se calculan por consulta; un snapshot de actas queda diferido.
+5. **No hay entidad `Aula`:** el aula es texto libre en `Seccion`.
+6. **No hay primaria ni inicial:** grados 1 a 5 de secundaria.
+7. **No hay notificaciones push/correo:** los comunicados se consultan en la API.
 
 ---
 
-## 4. Modelo de Dominio / Entidades Clave
+## 4. Roles, permisos y reglas de acceso
 
-> **Estado:** ✅ = ya implementada en `entity/` · 📋 = diseñada aquí, pendiente de implementar.
+### 4.1. Roles
 
-1. ✅ `User` / `Usuario`:
-   - `id`, `email` (único y obligatorio), `password` (hasheado con BCrypt, **nunca** expuesto en respuestas JSON), `nombres`, `apellidos`, `dni` (único), `rol` (Enum: `ADMIN`, `SECRETARIA`, `DOCENTE`, `ESTUDIANTE`, `APODERADO`), `activo` (boolean, **única fuente de baja lógica del sistema**), `createdAt`, `updatedAt`.
-   - Los perfiles **no** duplican el estado de baja: se desactiva la cuenta, no el perfil.
-2. ✅ `Docente`, `Estudiante`, `Apoderado`, `Secretaria`:
-   - Perfiles específicos vinculados **1:1** a `User` (un usuario = un perfil).
-   - `Estudiante`: `fechaNacimiento`, `estado` (`ACTIVO`, `TRASLADADO`, `RETIRADO`, `EGRESADO`) y método `estaHabilitado()`.
-   - `Apoderado` ↔ `Estudiante`: asociación `ApoderadoEstudiante` (N:M con atributos: `parentesco`, `responsablePrincipal`, `activo`).
-   - `Telefono`: 1:N **desde `User`** (colección única para todos los perfiles). Lo usan `DOCENTE`, `SECRETARIA`, `APODERADO` y `ADMIN`; `ESTUDIANTE` no, porque al ser menor la comunicación se canaliza por su apoderado.
-3. ✅ `PeriodoAcademico`:
-   - `id`, `nombre` (único; ej. Bimestre I, 2026), `fechaInicio`, `fechaFin`, `estado` (`ABIERTO`/`CERRADO`).
-   - **Regla:** sólo puede haber UNO `ABIERTO` a la vez — es el período vigente al que apuntarán asistencia y calificaciones. Nace `CERRADO` y se abre con `PATCH /admin/periodos/{id}/estado`; abrir con otro vigente → `409`.
-4. ✅ `Materia` (catálogo académico de la institución):
-   - `id`, `nombre` (único), `descripcion`, `activa`.
-   - Relación **N:M con `Docente`**: las **materias que un docente puede enseñar** (habilitaciones, con endpoints en `/admin/docentes/{id}/materias`).
-   - `activa=false` **impide nuevas asignaciones docentes**; las existentes se conservan (es un archivado, no un borrado).
-   - El `nivel`/`grado` no viven en la materia: se definen en `Seccion`.
-5. ✅ `Seccion`:
-   - `id`, `grado` (acotado a **1..5**: el sistema es sólo secundaria, sin campo `nivel`), `letra` (mayúscula), `aula` (texto libre, p. ej. "A-101" — **sin entidad `Aula`**; se extraerá como tabla si aparecen capacidad u horarios), `tutorId` (docente opcional), `periodoId`.
-   - **Regla:** `grado+letra` es único DENTRO de un período — las secciones se re-forman cada período (así asistencia y matrícula quedan acotadas al período sin columnas extra).
-6. ✅ `Curso` (antes `AsignacionDocente`) / ✅ `Matricula`:
-   - `Curso`: la oferta concreta del período — docente × materia × sección. **Es "el curso" del colegio** (Matemática · 3°A · profe X); `Materia` es el catálogo ("lo que se enseña") y el `Curso` su instancia concreta. Único por (materia, sección); exige materia habilitada al docente y materia activa. El nombre anterior describía la *acción* de asignar; la clase ahora es la identidad que cuelgan asistencia, notas y materiales, y que carga su horario.
-   - ✅ `HorarioBloque` (del curso): `cursoId`, `dia` (`LUNES`..`SABADO`), `horaInicio`, `horaFin` — sesión **semanal recurrente** (1:N: un curso se ve varias veces por semana). Sin solapes por sección ni por docente el mismo día.
-   - ✅ `Matricula`: `estudianteId`, `seccionId` (de la que sale el período), `estado` (`PENDIENTE` → `PAGADO`, acción de `SECRETARIA`). Única por (estudiante, sección) y **ninguna segunda en el mismo período** (cambiar de sección dentro del período es un traslado). Sólo alumnos `ACTIVO`. Es la que da **sección vigente** al alumno (la del período `ABIERTO`): cuelgan de ella `/estudiante/cursos`, su ficha y los hijos del apoderado.
-   - **Limitación de alcance:** no se implementará un módulo completo de matrículas/pensiones. La `Matricula` es un registro con estados gestionados por `SECRETARIA` y actualizados por reglas automáticas del sistema.
-7. 📋 `Asistencia`:
-   - `id`, `estudianteId`, `bloqueId` (el `HorarioBloque` del curso), `fecha`, `estado` (`PRESENTE`, `TARDANZA`, `FALTA`, `JUSTIFICADA`), `observacion`.
-   - Se toma **por sesión (bloque)**: el tutor registra a su grupo en el bloque de la hora en curso — de ahí que el horario fuera indispensable.
-8. 📋 `Calificacion`:
-   - `id`, `estudianteId`, `asignacionId` (materia + sección, y el período viene en la sección), `criterio/competencia`, `nota` (0.0 a 20.0), `fechaRegistro`.
-9. 📋 `TicketJustificacion`:
-   - `id`, `apoderadoId`, `estudianteId`, `fechaInasistencia`, `motivo`, `urlArchivoSustento`, `estado` (`PENDIENTE`, `APROBADO`, `RECHAZADO`), `fechaResolucion`, `observacionesAdmin`.
-   - **Regla de negocio:** Al aprobarse un ticket por la `SECRETARIA`, el registro de `Asistencia` correspondiente debe cambiar automáticamente a `JUSTIFICADA`.
-10. 📋 `MaterialClase`:
-    - `id`, `asignacionId`, `docenteId`, `titulo`, `urlArchivo`, `semana/bloque`, `fechaPublicacion`.
-11. 📋 `Comunicado`:
-    - `id`, `autorId`, `titulo`, `contenido`, `alcance` (`GLOBAL`, `GRADO`, `SECCION`), `destinatarioSeccionId` (nullable), `fechaPublicacion`.
+1. **`ADMIN`** (Coordinación / Dirección)
+   - Gestión de cuentas del personal.
+   - Apertura y gestión de años, bimestres, materias, secciones, cursos y horarios.
+   - Comunicados generales o para una sección.
+   - Reportes y métricas globales.
+   - Cierre de año y fijación de `situacionFinal`.
+   - No resuelve tickets: esa responsabilidad es de `SECRETARIA`.
+
+2. **`SECRETARIA`** (Personal administrativo)
+   - Registro de estudiantes y apoderados.
+   - Matrículas y retiros.
+   - Resolución de tickets de justificación.
+   - Consulta y actualización acotada de la ficha del alumno.
+   - Reportes de alumnos y asistencia.
+   - Comunicados generales para todos los grados.
+   - No gestiona pagos: el sistema no tiene módulo de pagos.
+
+3. **`DOCENTE`**
+   - Registro de asistencia por bloque y fecha.
+   - Planificación de unidades y contenidos de sus cursos.
+   - Registro de calificaciones por criterio.
+   - Publicación de materiales.
+   - Comunicados para sus secciones.
+   - Solo accede a sus cursos y secciones asignados.
+
+4. **`ESTUDIANTE`**
+   - Consulta de su matrícula, cursos, unidades publicadas, materiales, notas y asistencias.
+   - Comunicados generales y de su sección.
+   - No registra teléfonos propios.
+
+5. **`APODERADO`**
+   - Consulta de sus hijos formalmente vinculados y activos.
+   - Notas, asistencias, materiales y comunicados de cada hijo.
+   - Creación y seguimiento de tickets de justificación.
+   - No puede ver hijos sin vínculo activo.
+
+### 4.2. Matriz de autorización
+
+| Módulo | ADMIN | SECRETARIA | DOCENTE | ESTUDIANTE | APODERADO |
+|---|---|---|---|---|---|
+| Usuarios y perfiles | CRUD | — | — | — | — |
+| Años y bimestres | CRUD | Lectura | Lectura | Lectura | Lectura |
+| Materias | CRUD | Lectura | Lectura | Lectura | Lectura |
+| Secciones | CRUD | Lectura | Lectura | Lectura | Lectura |
+| Cursos y horarios | CRUD | Lectura | Lectura de los suyos | Lectura de los suyos | Lectura de los hijos |
+| Matrículas | CRUD | CRUD | — | Lectura propia | Lectura de hijos |
+| Planificación (unidades/contenidos) | Lectura | — | CRUD de sus cursos | Lectura publicada | Lectura publicada de hijos |
+| Asistencia | Lectura | Lectura | CRUD de sus cursos | Lectura propia | Lectura de hijos |
+| Calificaciones | Lectura | Lectura | CRUD de sus cursos | Lectura propia | Lectura de hijos |
+| Tickets | Lectura | Resolver | — | — | Crear/leer los suyos |
+| Materiales | Lectura | — | CRUD de sus cursos | Lectura publicada | Lectura publicada de hijos |
+| Comunicados | CRUD general/sección | CRUD general | CRUD de sus secciones | Lectura | Lectura de hijos |
+| Cierre y reportes | CRUD | Reportes de alumnos | Actas de sus cursos | Boleta propia | Boleta de hijos |
+
+### 4.3. Reglas de ownership
+
+- **Docente:** el `docenteId` sale del token. Nunca se acepta del request para decidir permisos. Para un `cursoId`, se valida que `curso.docente.id == docenteAutenticado.id`.
+- **Estudiante:** el `estudianteId` sale del token. Para un `cursoId`, se valida que el curso pertenezca a la sección de su matrícula vigente.
+- **Apoderado:** el `apoderadoId` sale del token. Para un `hijoId`, se valida que exista `ApoderadoEstudiante` con `activo=true`.
+- **Secretaría:** puede operar sobre cualquier alumno, pero no sobre la estructura académica (años, bimestres, materias, secciones, cursos, horarios), que es de `ADMIN`.
+- **ADMIN:** es superconjunto funcional, pero las reglas de negocio se siguen aplicando. No califica si no es el docente del curso; puede corregir con una acción administrativa auditada si se habilita.
+- **Path IDs:** cualquier endpoint con `{id}` valida existencia y pertenencia antes de devolver datos. Un `404` no revela si el recurso existe pero no pertenece al usuario.
+
+### 4.4. Autenticación
+
+- `POST /api/v1/auth/login` (`{email, password}`) → `200` con `{token, tokenType: "Bearer", expiresIn, user}`.
+- Límite de intentos: 5 fallos en 15 minutos bloquean 15 minutos; clave `email+IP`; `429` con `Retry-After`; estado en memoria.
+- `POST /api/v1/auth/register`: solo con BD vacía; crea el primer `ADMIN`. Luego responde `403`.
+- `GET /api/v1/auth/me`: cuenta + perfil del rol en una sola llamada.
+- API stateless: `Authorization: Bearer <token>`.
+- CORS por propiedad `app.cors.allowed-origins`.
+- `@PreAuthorize("hasRole('...')")` en controllers; ownership en services.
 
 ---
 
-## 6. Estado de la Implementación
+## 5. Módulos, endpoints y criterios de aceptación
 
-**Hecho y probado:**
-- Autenticación y autorización: login JWT, registro con alta inicial, `/me`, RBAC por rol, límite de intentos, errores uniformes en JSON y CORS para el SPA.
-- Gestión de usuarios y perfiles: altas por rol con cuenta y perfil creados en la misma transacción, en dos zonas — personal (`/api/v1/admin/{usuarios,docentes,secretarias}`, sólo `ADMIN`) y alumnos/familias (`/api/v1/secretaria/{estudiantes,apoderados}`, `ADMIN` + `SECRETARIA`). Listado con filtros, edición, baja lógica y reseteo de contraseña en `/api/v1/admin/usuarios`. `/auth/register` queda reducido al arranque (sólo con BD vacía): un solo camino de creación, sin duplicidades.
-- Catálogo académico (Módulo 2, todo `ADMIN`): períodos (**sólo uno `ABIERTO` a la vez**, nacen `CERRADOS`), materias del catálogo (CRUD + archivar con `activa`), secciones por período (grado 1..5, `grado+letra` único por período, tutor opcional), **habilitaciones** de materia por docente (`GET|PUT /admin/docentes/{id}/materias`, el `PUT` reemplaza el conjunto), **cursos** (`GET|POST|DELETE /admin/cursos` — únicos por materia+sección, exigen habilitación y materia activa; baja física) y su **horario** (`GET|PUT /admin/cursos/{id}/horario`: bloques semanales sin solapes por sección ni por docente).
-- Vistas por rol para el front (cierre del Módulo 2): `GET /docente/cursos` (el docente sólo ve los suyos), `GET /admin/docentes` (id de perfil + título + materias, para habilitar) y `/auth/me` con el perfil del rol. Dos bugs corregidos en el camino: el re-PUT idéntico del horario (el unique veía la hoja nueva antes de borrar la vieja; resuelto con `flush()` explícito) y `application.properties` esperaba `APP_LOGIN_*` cuando compose/.env exportan `APP_SECURITY_LOGIN_*` (siempre caían los defaults).
-- Estudiantes, matrículas y representados (Módulo 3): `Matricula` con sus reglas (nace `PENDIENTE`, única por (estudiante, sección), ninguna segunda en el mismo período, sólo alumnos `ACTIVO`; `PAGADO` es acción de Secretaría), **vínculos apoderado-estudiante** con baja lógica y un solo responsable principal, y las tres zonas del perfil: `GET /apoderado/hijos` (sus hijos con su sección vigente), `GET /estudiante/cursos` (los de su sección; vacío sin matrícula) y `/auth/me` con sección del estudiante e hijos del apoderado. Listados de Secretaría con `EstudianteResponse` (sección, matrícula y apoderados — nace aquí, sin reutilizar `UsuarioResponse`) y `ApoderadoResponse` (+ `?q=`).
-- 14 entidades: `Auditable`, `User`, `Docente`, `Estudiante`, `Apoderado`, `Secretaria`, `Materia`, `Telefono`, `ApoderadoEstudiante`, `PeriodoAcademico`, `Seccion`, `Curso`, `HorarioBloque`, `Matricula`.
-- 79 tests (unitarios + integración con Testcontainers) ejecutándose en el CI de GitHub Actions en cada push.
-- Docker Compose (Postgres + backend) con secretos fuera de Git y `.env.example` para el equipo.
-- Documentación interactiva en Swagger: `http://localhost:8080/swagger-ui/index.html`.
+El orden es el orden de implementación recomendado. Cada módulo se cierra (código + tests + Swagger + este documento) antes de pasar al siguiente.
 
-**Pendiente (por módulo):**
-- Estudiantes (`SECRETARIA`): la **edición acotada de la ficha del alumno** (fecha de nacimiento, estado académico `TRASLADADO/RETIRADO/EGRESADO`) — la baja de la cuenta ya existe en `/admin/usuarios/{id}/activo`. Pensiones: fuera de alcance por ahora (§4, limitación de alcance).
-- Asistencia diaria y calificaciones vigesimales.
-- Tickets de justificación (apoderado → secretaria) y su efecto automático sobre la asistencia.
-- Materiales de clase y comunicados.
-- Archivos en Supabase Storage (sustentos y material didáctico).
-- Endurecimiento, antes de producción: Flyway + perfil `dev`, refresh tokens, Docker non-root, CI en `main`.
+### Módulo 0 — Fundaciones 🔧
 
-**Cómo se ejecuta:**
-- `docker compose up -d` → Postgres (sólo accesible en `127.0.0.1`) + backend en `http://localhost:8080`.
-- `./mvnw spring-boot:run` → desarrollo con recarga; usa el mismo Postgres de Docker.
-- `./mvnw test` → 79 tests contra una PostgreSQL efímera (requiere Docker; sin él se saltan).
-- Alta inicial: la primera cuenta se crea con `POST /api/v1/auth/register` (sólo con BD vacía) y queda como `ADMIN`; en cuanto hay una, ese endpoint se cierra y todo lo demás se gestiona en `/api/v1/admin/...`.
+**Objetivo:** dejar la base técnica lista para el nuevo modelo.
+
+Incluye:
+- Docker Compose con PostgreSQL 17 y backend.
+- Variables de entorno y `.env.example`.
+- `ApiError` y `GlobalExceptionHandler`.
+- `Auditable` y auditoría JPA.
+- Swagger/OpenAPI.
+- CORS.
+- CI de GitHub Actions.
+- `README.md` con arranque, variables y reset de BD.
+- `ddl-auto=update` durante el desarrollo; el esquema se recrea con `docker compose down -v`.
+
+**Reset de desarrollo:**
+
+```bash
+docker compose down -v
+docker compose up -d --build
+./mvnw test
+```
+
+**Criterios de aceptación:**
+- `docker compose up -d` levanta Postgres y backend sin pasos manuales.
+- `./mvnw test` pasa con Testcontainers.
+- Swagger responde en `http://localhost:8080/swagger-ui/index.html`.
+- No hay secretos versionados.
+- `README.md` existe y explica el arranque.
 
 ---
 
-## 5. Módulos y Reglas de Negocio Esenciales
-- **Autenticación:**
-  - `POST /api/v1/auth/login` (`{email, password}`) → `200` con `{token, tokenType: "Bearer", expiresIn (segundos), user}`.
-  - **Límite de intentos (anti fuerza bruta):** 5 fallos dentro de 15 minutos bloquean el login durante 15 minutos (medidos desde el último fallo) → `429` con header `Retry-After`. Un acierto reinicia el contador y la clave es `email+IP`, para que el que queda bloqueado sea el que falla y no la víctima. Se comprueba antes de validar la contraseña. El estado vive en memoria (se pierde al reiniciar; con varias instancias haría falta Redis). Configurable con `app.security.login.*`.
-  - `POST /api/v1/auth/register` → **arranque del sistema** (`UsuarioBasicoRequest`: email, contraseña, nombres, apellidos, DNI, teléfonos). Funciona **únicamente con la BD vacía**: cualquiera crea la primera cuenta y nace **siempre `ADMIN`** (si naciera con otro rol, el sistema quedaría bloqueado, ya que a partir de ahí sólo un ADMIN podría crear cuentas; el "truco" además neutraliza la condición de carrera de `count()`, porque el peor caso son dos ADMIN, nunca un sistema sin administradores). En cuanto existe una sola cuenta, responde `403` — **incluso con token de ADMIN** — y todas las altas pasan a `/api/v1/admin/{usuarios,docentes,estudiantes,secretarias,apoderados}`, donde cada servicio crea la cuenta **y su perfil** con los datos que el rol exige. Un solo interruptor + una sola zona de gestión = sin caminos paralelos. Todas las altas pasan por `UsuarioService.crearCuenta()` → una sola verdad (unicidad de email/DNI, hash BCrypt, teléfonos) y ninguna cuenta a medias. El email se normaliza a minúsculas y el DNI debe tener 8 dígitos.
-  - `GET /api/v1/auth/me` → la cuenta + el perfil de su rol en **UNA llamada** (`{usuario, perfil}`): hoy el `DOCENTE` trae título y materias habilitadas; el `ESTUDIANTE` añadirá su sección y el `APODERADO` sus hijos con el Módulo 3 (los demás roles, `perfil: null`).
-  - El cliente envía `Authorization: Bearer <token>` en cada petición. API **stateless**: sin sesiones ni cookies.
-  - Errores en JSON (`ApiError`, sin stack traces): `400` validación de DTO con detalle campo a campo o cuerpo ilegible, `401` credenciales inválidas o token ausente, `403` usuario inactivo o sin permiso, `404`/`405`/`415` para ruta, método o `Content-Type` incorrectos, `409` email/DNI duplicado, `429` límite de intentos de login, `500` sólo para fallos inesperados.
-  - `AppCORS`: orígenes del SPA por propiedad `app.cors.allowed-origins` (sin credenciales: la auth va en el header).
-  - Validación de roles mediante `@PreAuthorize("hasRole('ADMIN')")`, `@PreAuthorize("hasRole('SECRETARIA')")`, `@PreAuthorize("hasRole('DOCENTE')")`, etc.
-  - Endpoints de prueba de RBAC: `GET /api/v1/demo/{admin|secretaria|docente|estudiante|apoderado}` y `/api/v1/demo/authenticated`.
-- **Gestión de usuarios y perfiles:** cada rol se da de alta en **su endpoint**, con la forma `{"usuario": {...}, "perfil": {...}}`: la cuenta (`UsuarioBasicoRequest`, común a todos) y los datos propios del perfil (`DocenteRequest`, `EstudianteRequest`, `SecretariaRequest`, `ApoderadoRequest`) van **separados**, de modo que un perfil puede reusarse en otros módulos sin arrastrar credenciales. Convenio de autorización: **la ruta nombra el dominio responsable y el `@PreAuthorize` dice quién tiene permiso** (`ADMIN` es siempre superconjunto).
-  - **Personal — sólo `ADMIN`** (`/api/v1/admin/...`):
-    - `POST /api/v1/admin/usuarios` → alta de `ADMIN`, el único rol sin perfil propio.
-    - `POST /api/v1/admin/docentes` → crea la cuenta **y** el perfil `Docente` en la misma transacción (`titulo` opcional).
-    - `POST /api/v1/admin/secretarias` → hoy con `"perfil": {}` (campos reservados).
-  - **Alumnos y familias — `ADMIN` y `SECRETARIA`** (`/api/v1/secretaria/...`):
-    - `POST /api/v1/secretaria/estudiantes` → crea cuenta + perfil `Estudiante`; exige `fechaNacimiento` y **rechaza teléfonos** (`400`: la comunicación es con su apoderado). Secretaría es quien recibe a las familias, de ahí que sea su dominio.
-    - `POST /api/v1/secretaria/apoderados` → hoy con `"perfil": {}`; sus representados vendrán con el módulo de matrículas.
-    - *Pendiente:* que Secretaría pueda **editar** la ficha del alumno y cambiar el estado de su matrícula (módulo 3). Esa edición tendrá que venir **acotada a estudiantes y apoderados**; nunca al listado general de cuentas.
-  - **Consistencia perfil ↔ rol garantizada:** el rol lo fija el servicio de cada perfil (no un campo del request), así que no puede existir un `User` cuyo rol no corresponda a su perfil. El rol **no es editable**: para cambiarlo se da de baja la cuenta y se crea otra.
-  - Email/DNI duplicados → `409`; la comprobación vive en un solo punto (`UsuarioService.crearCuenta()`), por el que pasan **todas** las altas, incluida `/auth/register`.
-  - `GET /api/v1/admin/usuarios?rol=&activo=&q=` → listado con filtros combinables; `q` busca por email, nombres, apellidos o DNI. `GET /api/v1/admin/usuarios/{id}` → detalle (`404` si no existe). **Sólo `ADMIN`**: es el listado de TODAS las cuentas (incluidos administradores y docentes).
-  - `PUT /api/v1/admin/usuarios/{id}` → nombres, apellidos, teléfonos (lista vacía = quitar todos) y campos del perfil.
-  - `PATCH /api/v1/admin/usuarios/{id}/activo` → baja lógica (`{activo: false}`), que corta el acceso al instante.
-  - `PATCH /api/v1/admin/usuarios/{id}/password` → reseteo por `ADMIN` (no invalida los tokens ya emitidos; eso lo hace la baja).
-  - Sin token `401`; sin permiso para la zona `403`.
-- **Catálogo académico (Módulo 2, exclusivo de `ADMIN`, todo bajo `/api/v1/admin/...`):**
-  - **Terminología:** `Materia` = "lo que se enseña" (catálogo: Matemática, Física); `Seccion` = el grupo de un período ("3°A"); `Curso` = la instancia del período (**antes `AsignacionDocente`** — renombrada porque "asignación" describía una acción, y la clase ahora es la identidad que cuelgan asistencia, notas y materiales). Donde el roadmap decía `cursoId` ambiguo, ahora se distingue: `cursoId` (la instancia) o `seccionId` (el grupo).
-  - `GET|POST /api/v1/admin/periodos`, `PUT /{id}`, `PATCH /{id}/estado`: el período **nace `CERRADO`** y se abre a propósito (así "quién abrió y cuándo" queda claro y la regla vive en un solo método). **Sólo UNO `ABIERTO` a la vez** (`409` si ya hay otro vigente), nombre único (`409`), fin anterior a inicio (`400`).
-  - `GET|POST /api/v1/admin/materias`, `PUT /{id}`, `PATCH /{id}/activa`: nombre único (`409`). `activa=false` **impide nuevas asignaciones** sin tocar las existentes — es un "ya no la damos más", no un borrado.
-  - `GET|POST /api/v1/admin/secciones` (`?periodoId=`), `PUT /{id}`: grado acotado a **1..5** (sólo secundaria, sin campo `nivel`), letra en mayúscula, `aula` como **texto** (sin entidad `Aula`: se extraerá si aparecen capacidad u horarios), tutor opcional. `grado+letra` único por período (`409`) y **no se mueve de período** (`409`: se crea otra fila — arrastrarla rompería el histórico por período).
-  - `GET|PUT /api/v1/admin/docentes/{id}/materias`: las **habilitaciones** del docente ("qué puede enseñar"). El `PUT` **reemplaza el conjunto completo** (misma filosofía que los teléfonos): se envía la lista entera — o vacía para dejarlo sin materias.
-  - `GET /api/v1/admin/docentes`: listado con **id de PERFIL**, título, materias habilitadas y estado (`DocenteResponse`) — la pantalla de habilitaciones necesita el id del perfil, que no sale en `UsuarioResponse`: cada pantalla, su salida.
-  - **Zona DOCENTE** — `GET /api/v1/docente/cursos`: **sus** cursos (materia, sección, período). Sin filtros: la identidad sale del token, que no puede falsearse (§5, acceso a datos por perfil). `ADMIN` no entra (`403`: la zona es del dueño de los datos).
-  - `GET|POST /api/v1/admin/cursos` (`?seccionId=`, `?docenteId=`), `DELETE /{id}`: el período **no se pide** (viene de la sección). Reglas → `409`: único por (materia, sección) — nadie más da Matemáticas en 3°A —, docente sin la materia habilitada y materia desactivada. La baja es **física** (`DELETE`): es configuración del período, no histórico de personas (eso sí se desactiva, como `User.activo`) — y se lleva por delante su horario.
-  - `GET|PUT /api/v1/admin/cursos/{id}/horario`: el horario es **1:N** (`HorarioBloque`, sesión semanal recurrente — un curso se ve varias veces por semana). El `PUT` reemplaza la **hoja entera** (misma filosofía que las habilitaciones; repetir la hoja idéntica es un no-op `200`). Reglas → `400` si un bloque termina antes de empezar; `409` por solapes: ni con otro curso de la misma sección ni con otro del mismo docente el mismo día (los bloques consecutivos no solapan: 09:00 fin / 09:00 inicio). La asistencia futura colgará de (bloque, fecha).
-  - **Diferidos, con su disparador escrito:** `Unidad`/contenidos (cuando las notas se agrupen por unidad) y `Aula` como entidad (si aparecen capacidad u horarios institucionales). ~~Horario~~: ya implementado.
-- **Estudiantes, matrículas y representados (Módulo 3):**
-  - Zona `SECRETARIA` (con `ADMIN` como superconjunto):
-    - `GET /api/v1/secretaria/estudiantes` (`?q=`, `?estado=`) → **`EstudianteResponse`**: ficha + **sección/matrícula del período vigente + apoderados** (nace aquí; NO reutiliza `UsuarioResponse`, que es la vista de cuentas de ADMIN).
-    - `GET /api/v1/secretaria/apoderados` (`?q=`) → `ApoderadoResponse` con sus hijos básicos.
-    - `POST /api/v1/secretaria/matriculas` `{estudianteId, seccionId}` → nace **`PENDIENTE`**. Reglas → `404` si no existe el alumno o la sección; `409` si ya está en esa sección, si ya tiene otra matrícula en el **mismo período** (eso es un traslado) o si el alumno no está `ACTIVO`.
-    - `PATCH /api/v1/secretaria/matriculas/{id}/estado` `{estado}` → paso a `PAGADO` **como acción de Secretaría** (nunca automático).
-    - `POST|DELETE /api/v1/secretaria/apoderados/{id}/representados`: los vínculos los **crea Secretaría** (el apoderado no se asigna hijos). `parentesco` (`PADRE|MADRE|TUTOR|HERMANO|OTRO`) y `responsablePrincipal` — **sólo UNO principal por estudiante**: al nombrar uno nuevo, el anterior deja de serlo. El `DELETE` es baja **lógica** (`activo=false`, queda el historial) y re-vincular reactiva el par (`201`) sin duplicarlo; `404` si no estaba activo.
-  - **Zona APODERADO** — `GET /api/v1/apoderado/hijos`: **sus** hijos formalmente asignados, con la **sección del período `ABIERTO`** (sección/matrícula `null` si aún no está matriculado o no hay período abierto). Identidad del token: no recibe ids, no puede pedir los de nadie más.
-  - **Zona ESTUDIANTE** — `GET /api/v1/estudiante/cursos`: los cursos de **su** sección vigente. Sin matrícula → lista vacía (no es error: es un alumno aún no inscrito).
-  - `/auth/me` ampliado: el `ESTUDIANTE` trae `seccionEtiqueta`/`periodoNombre`/`matriculaEstado` y el `APODERADO` su lista de `hijos` — el perfil de una sola llamada, por rol.
-- **Flujo de Justificaciones:**
-  - Solo el apoderado puede registrar solicitudes de justificación para sus representados.
-  - La `SECRETARIA` revisa el sustento; si lo aprueba, se actualiza el estado de la asistencia del estudiante de forma transaccional.
-- **Matrículas, Pensiones y Estados:**
-  - El registro del estudiante y el cambio de estado de matrícula/pensión a `PAGADO` lo realiza `SECRETARIA`.
-  - El sistema aplica reglas automáticas (p. ej. al aprobar un ticket la asistencia pasa a `JUSTIFICADA`, cálculo de estados vencidos).
-- **Escala de Calificaciones:**
-  - Estrictamente vigesimal: valores entre `0` y `20`.
-- **Acceso a Datos por Perfil:**
-  - El estudiante solo puede consultar su propia información.
-  - El apoderado solo puede consultar los datos de los estudiantes formalmente asignados a su cargo.
-  - El docente solo puede calificar y tomar asistencia en los cursos y secciones que tenga formalmente asignados en el periodo vigente.
-  - La `SECRETARIA` solo gestiona tickets, registro/estados del alumnado y matrículas; la estructura académica (períodos, materias, secciones, asignaciones) es exclusiva de `ADMIN`.
-  - Al ser menores de edad, la comunicación con el `ESTUDIANTE` (citaciones, avisos de falta) se canaliza por su `APODERADO`: el estudiante no registra teléfonos propios.
+### Módulo 1 — Identidad y acceso ✅
+
+**Objetivo:** autenticación JWT, RBAC y gestión de cuentas/perfiles.
+
+**Entidades:** `User`, `Telefono`, `Docente`, `Estudiante`, `Apoderado`, `Secretaria`.
+
+**Reglas:**
+- Email único y en minúsculas; DNI único de 8 dígitos.
+- Contraseña BCrypt, nunca expuesta.
+- Rol inmutable y consistente con el perfil.
+- Baja lógica por `User.activo`.
+- El primer registro solo funciona con BD vacía y crea `ADMIN`.
+- Todas las altas pasan por `UsuarioService.crearCuenta()`.
+
+**Endpoints:**
+
+| Método y ruta | Rol | Descripción |
+|---|---|---|
+| `POST /api/v1/auth/login` | público | Login JWT |
+| `POST /api/v1/auth/register` | público (solo BD vacía) | Bootstrap del primer ADMIN |
+| `GET /api/v1/auth/me` | autenticado | Cuenta + perfil del rol |
+| `GET /api/v1/admin/usuarios?rol=&activo=&q=` | ADMIN | Listado de cuentas |
+| `GET /api/v1/admin/usuarios/{id}` | ADMIN | Detalle de cuenta |
+| `POST /api/v1/admin/usuarios` | ADMIN | Alta de ADMIN |
+| `PUT /api/v1/admin/usuarios/{id}` | ADMIN | Edición de cuenta y perfil |
+| `PATCH /api/v1/admin/usuarios/{id}/activo` | ADMIN | Baja lógica |
+| `PATCH /api/v1/admin/usuarios/{id}/password` | ADMIN | Reseteo de contraseña |
+| `POST /api/v1/admin/docentes` | ADMIN | Cuenta + perfil Docente |
+| `POST /api/v1/admin/secretarias` | ADMIN | Cuenta + perfil Secretaria |
+| `POST /api/v1/secretaria/estudiantes` | ADMIN, SECRETARIA | Cuenta + perfil Estudiante |
+| `POST /api/v1/secretaria/apoderados` | ADMIN, SECRETARIA | Cuenta + perfil Apoderado |
+| `GET /api/v1/admin/docentes` | ADMIN | Docentes con id de perfil y materias |
+
+**Criterios de aceptación:**
+- Login correcto/incorrecto, token expirado, sin token y sin permiso devuelven códigos coherentes.
+- No se puede crear un `User` con rol distinto al perfil.
+- El alta de estudiante rechaza teléfonos con `400`.
+- La baja lógica corta el acceso de inmediato.
+- Tests de seguridad para cada zona.
+
+---
+
+### Módulo 2 — Estructura académica anual 🔧
+
+**Objetivo:** modelar el año escolar, sus bimestres y la oferta académica.
+
+**Entidades:** `AnioEscolar`, `Bimestre`, `Materia`, `Seccion`, `Curso`, `HorarioBloque`.
+
+**Reglas:**
+- Solo un año `ABIERTO` y solo un bimestre `ABIERTO`.
+- Un año `PLANIFICADO` permite preparar estructura y es editable; `CERRADO` es solo lectura.
+- `Bimestre` no se solapa y vive dentro del año.
+- `Seccion` es única por `(año, grado, letra)`.
+- `Curso` es único por `(materia, sección)`.
+- Materia activa y habilitada al docente.
+- Horario sin solapes por sección ni por docente.
+- El horario es plantilla; la asistencia se registra por `(bloque, fecha)`.
+
+**Endpoints:**
+
+| Método y ruta | Rol | Descripción |
+|---|---|---|
+| `GET/POST /api/v1/admin/anios` | ADMIN | Listado y alta de años |
+| `PUT /api/v1/admin/anios/{id}` | ADMIN | Edición |
+| `PATCH /api/v1/admin/anios/{id}/estado` | ADMIN | Planificar/abrir/cerrar |
+| `GET/POST /api/v1/admin/anios/{id}/bimestres` | ADMIN | Bimestres del año |
+| `PUT /api/v1/admin/bimestres/{id}` | ADMIN | Edición |
+| `PATCH /api/v1/admin/bimestres/{id}/estado` | ADMIN | Abrir/cerrar |
+| `GET/POST /api/v1/admin/materias` | ADMIN | Catálogo |
+| `PUT /api/v1/admin/materias/{id}` | ADMIN | Edición |
+| `PATCH /api/v1/admin/materias/{id}/activa` | ADMIN | Archivar/reactivar |
+| `GET/POST /api/v1/admin/secciones?anioId=` | ADMIN | Secciones del año |
+| `PUT /api/v1/admin/secciones/{id}` | ADMIN | Edición |
+| `GET/PUT /api/v1/admin/docentes/{id}/materias` | ADMIN | Habilitaciones |
+| `GET/POST /api/v1/admin/cursos?seccionId=&docenteId=` | ADMIN | Cursos |
+| `DELETE /api/v1/admin/cursos/{id}` | ADMIN | Baja si no tiene historia |
+| `GET/PUT /api/v1/admin/cursos/{id}/horario` | ADMIN | Horario semanal |
+| `GET /api/v1/docente/cursos` | DOCENTE | Sus cursos |
+| `GET /api/v1/docente/cursos/{id}/horario` | DOCENTE | Horario de su curso |
+
+**Criterios de aceptación:**
+- Abrir un segundo año o bimestre devuelve `409`.
+- No se puede cerrar un año con bimestres abiertos.
+- No se puede mover una sección de año.
+- Un curso sin materia habilitada o con materia inactiva devuelve `409`.
+- El re-PUT idéntico de horario es un no-op `200`.
+- Los solapes de horario devuelven `409`.
+- El `PUT` de horario de un curso con asistencias devuelve `409`.
+
+---
+
+### Módulo 3 — Alumnos, apoderados y matrícula 🔧
+
+**Objetivo:** registrar alumnos, vincular apoderados y matricularlos en una sección del año.
+
+**Entidades:** `Estudiante`, `Apoderado`, `ApoderadoEstudiante`, `Matricula`.
+
+**Reglas:**
+- Solo alumnos `ACTIVO` se matriculan.
+- Una `Matricula` por alumno y año.
+- La sección debe pertenecer al mismo año que la matrícula.
+- La sección puede modificarse solo antes de `AnioEscolar.fechaInicio` (primer día de clases) y mientras no exista ninguna asistencia ni calificación. Al iniciar clases, la matrícula queda fijada.
+- El retiro marca `situacionFinal=RETIRADO` y `Estudiante.estado=RETIRADO`.
+- El reingreso reactiva al alumno (`ACTIVO`) y su matrícula del año si sigue abierta, o crea una nueva si cambió de año.
+- Solo un responsable principal activo por alumno.
+- El apoderado no se asigna hijos: los vincula `SECRETARIA`.
+- La ficha del alumno se edita de forma acotada: fecha de nacimiento y estado académico.
+- No hay módulo de pagos.
+
+**Endpoints:**
+
+| Método y ruta | Rol | Descripción |
+|---|---|---|
+| `GET /api/v1/secretaria/estudiantes?q=&estado=` | ADMIN, SECRETARIA | Listado con sección y apoderados |
+| `GET /api/v1/secretaria/estudiantes/{id}` | ADMIN, SECRETARIA | Ficha |
+| `PUT /api/v1/secretaria/estudiantes/{id}` | ADMIN, SECRETARIA | Edición acotada |
+| `PATCH /api/v1/secretaria/estudiantes/{id}/estado` | ADMIN, SECRETARIA | `ACTIVO` (reingreso), `TRASLADADO`, `RETIRADO`, `EGRESADO` |
+| `GET /api/v1/secretaria/apoderados?q=` | ADMIN, SECRETARIA | Listado con hijos |
+| `GET /api/v1/secretaria/matriculas?anioId=&seccionId=&q=` | ADMIN, SECRETARIA | Matrículas del año/sección |
+| `GET /api/v1/secretaria/matriculas/{id}` | ADMIN, SECRETARIA | Detalle de matrícula |
+| `POST /api/v1/secretaria/matriculas` | ADMIN, SECRETARIA | Crea matrícula en una sección |
+| `PATCH /api/v1/secretaria/matriculas/{id}/seccion` | ADMIN, SECRETARIA | Cambia de sección antes de iniciar clases |
+| `PATCH /api/v1/secretaria/matriculas/{id}/retiro` | ADMIN, SECRETARIA | Retiro del año |
+| `POST/DELETE /api/v1/secretaria/apoderados/{id}/representados` | ADMIN, SECRETARIA | Vincular/desvincular |
+| `GET /api/v1/apoderado/hijos` | APODERADO | Sus hijos activos con sección vigente |
+| `GET /api/v1/estudiante/matricula` | ESTUDIANTE | Su matrícula y sección vigente |
+
+**Criterios de aceptación:**
+- Matricular dos veces al mismo alumno en el año devuelve `409`.
+- Matricular en una sección de otro año devuelve `409`.
+- Cambiar de sección con el año iniciado o con asistencias/calificaciones devuelve `409`.
+- Cambiar de sección antes de `AnioEscolar.fechaInicio` y sin actividad devuelve `200`.
+- Un retiro impide nuevas asistencias y notas.
+- Un apoderado sin vínculo activo no ve al alumno.
+- Solo un responsable principal activo por alumno.
+
+---
+
+### Módulo 4 — Planificación docente 🆕
+
+**Objetivo:** que el docente planifique sus cursos por bimestre con unidades y contenidos.
+
+**Entidades:** `Unidad`, `Contenido`.
+
+**Reglas:**
+- Solo el docente del curso crea/edita sus unidades.
+- La unidad pertenece a un bimestre del mismo año que la sección del curso.
+- Se puede planificar en bimestre `PLANIFICADO` o `ABIERTO`; no en `CERRADO`.
+- El alumno y el apoderado solo ven unidades `PUBLICADA`.
+- Los contenidos se reordenan con un endpoint bulk.
+- No se elimina una unidad con calificaciones o contenidos con materiales.
+- No se elimina un contenido con materiales.
+
+**Endpoints:**
+
+| Método y ruta | Rol | Descripción |
+|---|---|---|
+| `GET/POST /api/v1/docente/cursos/{cursoId}/unidades` | DOCENTE | Unidades del curso |
+| `GET/PUT /api/v1/docente/unidades/{id}` | DOCENTE | Detalle/edición |
+| `PATCH /api/v1/docente/unidades/{id}/estado` | DOCENTE | Publicar/despublicar |
+| `GET/POST /api/v1/docente/unidades/{id}/contenidos` | DOCENTE | Contenidos |
+| `PUT/DELETE /api/v1/docente/contenidos/{id}` | DOCENTE | Edición/baja |
+| `PUT /api/v1/docente/unidades/{id}/contenidos/orden` | DOCENTE | Reordenar |
+| `GET /api/v1/estudiante/cursos/{cursoId}/unidades` | ESTUDIANTE | Solo publicadas |
+| `GET /api/v1/apoderado/hijos/{id}/cursos/{cursoId}/unidades` | APODERADO | Solo publicadas |
+
+**Criterios de aceptación:**
+- Un docente no puede ver ni editar unidades de un curso ajeno.
+- Un estudiante no puede ver unidades `BORRADOR`.
+- El reordenamiento no viola el unique `(unidad_id, orden)`.
+- Publicar una unidad con contenidos los hace visibles.
+
+---
+
+### Módulo 5 — Asistencia 🆕
+
+**Objetivo:** registrar asistencia por bloque de horario y fecha.
+
+**Entidades:** `Asistencia`.
+
+**Reglas:**
+- La asistencia se identifica por `(matricula_id, bloque_id, fecha)`.
+- El bloque debe pertenecer a un curso de la sección de la matrícula.
+- La fecha debe caer en el día del bloque y dentro de un bimestre `ABIERTO`.
+- Solo el docente del curso registra asistencia.
+- Un ticket aprobado justifica automáticamente.
+- No se borra una asistencia; se corrige con auditoría.
+- La asistencia se registra en bloque (todos los alumnos de la sección) y se puede corregir.
+- No hay reprogramaciones: si la clase se mueve de fecha, no se representa.
+
+**Endpoints:**
+
+| Método y ruta | Rol | Descripción |
+|---|---|---|
+| `GET /api/v1/docente/cursos/{cursoId}/asistencia?bloqueId=&fecha=` | DOCENTE | Lista de la clase |
+| `PUT /api/v1/docente/cursos/{cursoId}/asistencia` | DOCENTE | Asistencia bulk por bloque y fecha |
+| `GET /api/v1/estudiante/asistencias?anioId=&bimestreId=` | ESTUDIANTE | Propias |
+| `GET /api/v1/apoderado/hijos/{id}/asistencias` | APODERADO | Del hijo |
+| `GET /api/v1/secretaria/estudiantes/{id}/asistencias` | SECRETARIA | Del alumno |
+
+**Criterios de aceptación:**
+- No se registra asistencia en bimestre cerrado.
+- No se registra asistencia de un alumno de otra sección.
+- Una fecha que no corresponde al día del bloque devuelve `400`.
+- Un ticket aprobado cambia la falta a justificada.
+
+---
+
+### Módulo 6 — Calificaciones 🆕
+
+**Objetivo:** registrar notas vigesimales por unidad y criterio.
+
+**Entidades:** `Calificacion`.
+
+**Reglas:**
+- La calificación se identifica por `(matricula_id, unidad_id, criterio)`.
+- El `criterio` es texto libre: "Examen parcial", "Práctica 1", "Tarea 2".
+- Solo el docente del curso crea y edita notas.
+- La matrícula debe pertenecer a la sección del curso de la unidad.
+- El bimestre debe estar `ABIERTO` para registrar o modificar notas.
+- Nota entre `0.00` y `20.00`, dos decimales.
+- Promedios simples por unidad, bimestre y año.
+- Nota aprobatoria `11.00` y asistencia mínima `70%`.
+- No hay entidad `Evaluacion`: el criterio vive en la calificación.
+
+**Endpoints:**
+
+| Método y ruta | Rol | Descripción |
+|---|---|---|
+| `GET /api/v1/docente/unidades/{id}/calificaciones` | DOCENTE | Notas de la unidad |
+| `PUT /api/v1/docente/unidades/{id}/calificaciones` | DOCENTE | Notas bulk por criterio |
+| `DELETE /api/v1/docente/calificaciones/{id}` | DOCENTE | Baja con auditoría |
+| `GET /api/v1/docente/cursos/{id}/actas?bimestreId=` | DOCENTE | Acta del curso |
+| `GET /api/v1/estudiante/calificaciones?anioId=&bimestreId=` | ESTUDIANTE | Propias |
+| `GET /api/v1/apoderado/hijos/{id}/calificaciones` | APODERADO | Del hijo |
+| `GET /api/v1/secretaria/estudiantes/{id}/calificaciones` | SECRETARIA | Del alumno |
+
+**Criterios de aceptación:**
+- No se califica en bimestre cerrado.
+- No se califica a un alumno de otra sección.
+- Nota fuera de rango devuelve `400`.
+- El promedio de unidad y bimestre coincide con la fórmula documentada.
+- Un docente no ve actas de cursos ajenos.
+- Repetir el mismo `criterio` para la misma matrícula y unidad devuelve `409`.
+
+---
+
+### Módulo 7 — Justificaciones 🆕
+
+**Objetivo:** que el apoderado justifique inasistencias y Secretaría las resuelva.
+
+**Entidades:** `TicketJustificacion`, `Asistencia`.
+
+**Reglas:**
+- Solo el apoderado con vínculo activo crea tickets.
+- La fecha no puede ser futura.
+- Un ticket puede ser de todo el día o de un bloque.
+- Secretaría resuelve; al aprobar se actualizan las faltas.
+- Si la asistencia se registra después, nace justificada.
+- No se permite más de un ticket activo por alumno/fecha/bloque.
+- No se elimina; los estados son la historia.
+
+**Endpoints:**
+
+| Método y ruta | Rol | Descripción |
+|---|---|---|
+| `GET/POST /api/v1/apoderado/hijos/{id}/tickets` | APODERADO | Sus tickets |
+| `GET /api/v1/secretaria/tickets?estado=&fecha=` | SECRETARIA | Bandeja |
+| `PATCH /api/v1/secretaria/tickets/{id}/resolver` | SECRETARIA | Aprobar/rechazar |
+| `GET /api/v1/secretaria/tickets/{id}` | SECRETARIA | Detalle |
+
+**Criterios de aceptación:**
+- Un apoderado no ve tickets de hijos ajenos.
+- Aprobar un ticket actualiza todas las faltas del alcance en una transacción.
+- Rechazar no toca la asistencia.
+- Un ticket ya resuelto no se vuelve a resolver.
+
+---
+
+### Módulo 8 — Materiales y Storage 🆕
+
+**Objetivo:** publicar material didáctico y sustentos en Supabase Storage.
+
+**Entidades:** `MaterialClase`, `TicketJustificacion`.
+
+**Reglas:**
+- Buckets privados: `materiales` y `sustentos`.
+- El backend sube con service role; nunca expone esa clave al frontend.
+- Se guarda `storagePath`, no una URL pública permanente.
+- La descarga se hace con URL firmada de corta duración.
+- Solo el docente del curso sube material.
+- Material no publicado solo lo ve el docente y `ADMIN`.
+- Validar MIME, tamaño y extensión.
+
+**Endpoints:**
+
+| Método y ruta | Rol | Descripción |
+|---|---|---|
+| `GET/POST /api/v1/docente/cursos/{id}/materiales` | DOCENTE | Listado/alta |
+| `PUT/DELETE /api/v1/docente/materiales/{id}` | DOCENTE | Edición/baja lógica |
+| `GET /api/v1/estudiante/cursos/{id}/materiales` | ESTUDIANTE | Publicados |
+| `GET /api/v1/apoderado/hijos/{id}/cursos/{id}/materiales` | APODERADO | Publicados |
+| `GET /api/v1/materiales/{id}/download` | según permisos | URL firmada |
+
+**Criterios de aceptación:**
+- Un alumno no descarga material no publicado.
+- Un docente no sube material a un curso ajeno.
+- La URL firmada expira.
+- La baja lógica no deja el archivo accesible.
+
+---
+
+### Módulo 9 — Comunicados 🆕
+
+**Objetivo:** mensajes simples del docente a su sección, de Secretaría a toda la institución y del ADMIN a toda la institución o a una sección.
+
+**Entidades:** `Comunicado`.
+
+**Reglas:**
+- `ADMIN` publica mensajes generales (`seccion_id=NULL`) o para una sección.
+- `SECRETARIA` publica solo mensajes generales (`seccion_id=NULL`), para todos los grados.
+- `DOCENTE` publica solo en secciones donde tiene cursos o tutoría.
+- El alumno ve los generales y los de su sección.
+- El apoderado ve los generales y los de la sección de cada hijo activo.
+- No hay `tipo` ni `alcance` separados: el filtro es `seccion_id` (`NULL` = general).
+- El mensaje guarda autor, fecha/hora y contenido; no requiere título.
+- Baja lógica.
+
+**Endpoints:**
+
+| Método y ruta | Rol | Descripción |
+|---|---|---|
+| `GET/POST /api/v1/admin/comunicados` | ADMIN | General o por sección |
+| `PUT/DELETE /api/v1/admin/comunicados/{id}` | ADMIN | Edición/baja |
+| `GET/POST /api/v1/secretaria/comunicados` | SECRETARIA | Solo generales |
+| `GET/POST /api/v1/docente/comunicados` | DOCENTE | Sus secciones |
+| `GET /api/v1/estudiante/comunicados` | ESTUDIANTE | Visibles |
+| `GET /api/v1/apoderado/comunicados` | APODERADO | De sus hijos |
+
+**Criterios de aceptación:**
+- Un docente no publica en una sección ajena.
+- Secretaría no puede publicar en una sección; solo mensajes generales.
+- Un alumno no ve comunicados de otra sección.
+- Un comunicado inactivo no aparece.
+
+---
+
+### Módulo 10 — Cierre y reportes 🆕
+
+**Objetivo:** cerrar el año, fijar `situacionFinal` y emitir boletas/actas.
+
+**Entidades:** `Matricula`, `Calificacion`, `Asistencia`, `Bimestre`, `AnioEscolar`.
+
+**Reglas:**
+- El cierre de año requiere todos los bimestres cerrados.
+- `situacionFinal`:
+  - `APROBADO` si **todos** los cursos tienen promedio anual ≥ `11.00` y la asistencia global del alumno ≥ `70%`.
+  - `DESAPROBADO` si algún curso tiene promedio anual < `11.00` o la asistencia global < `70%`.
+  - `RETIRADO` si el alumno se retiró.
+- Un curso desaprobado impide `APROBADO` aunque el promedio general sea mayor o igual a `11.00`.
+- Al aprobar 5° grado, `Estudiante.estado=EGRESADO`.
+- El cierre es idempotente: repetirlo no duplica efectos.
+- Las boletas se calculan, no se guardan.
+- Si falta la información de notas de algún curso, el cierre se bloquea y requiere revisión de `ADMIN`.
+
+**Endpoints:**
+
+| Método y ruta | Rol | Descripción |
+|---|---|---|
+| `GET /api/v1/admin/anios/{id}/cierre/preview` | ADMIN | Vista previa |
+| `POST /api/v1/admin/anios/{id}/cerrar` | ADMIN | Cierre del año |
+| `GET /api/v1/estudiante/boleta?anioId=` | ESTUDIANTE | Boleta propia |
+| `GET /api/v1/apoderado/hijos/{id}/boleta?anioId=` | APODERADO | Boleta del hijo |
+| `GET /api/v1/secretaria/estudiantes/{id}/historial` | SECRETARIA | Historial |
+| `GET /api/v1/admin/reportes/asistencia?anioId=&bimestreId=&seccionId=` | ADMIN | Reporte |
+| `GET /api/v1/admin/reportes/calificaciones?anioId=&bimestreId=&seccionId=` | ADMIN | Reporte |
+
+**Criterios de aceptación:**
+- No se cierra un año con bimestres abiertos.
+- El preview coincide con el cierre.
+- Un curso con promedio anual < `11.00` impide `APROBADO` aunque el promedio general sea mayor.
+- Un alumno retirado no aparece como aprobado.
+- La boleta de un apoderado solo incluye hijos activos.
+
+---
+
+### Módulo 11 — Endurecimiento 🆕
+
+**Objetivo:** dejar el sistema listo para producción.
+
+Incluye:
+- Flyway en todos los entornos y `ddl-auto=validate`.
+- Migración del esquema actual a la nueva semántica anual.
+- Refresh tokens o rotación de JWT.
+- Rate limiting distribuido (Redis) si hay más de una instancia.
+- Docker non-root.
+- CI en `main` con tests y análisis.
+- Backups de PostgreSQL.
+- Observabilidad: logs estructurados, health checks, métricas.
+- Revisión de seguridad de Storage y CORS.
+- Documentación de operación y recuperación.
+
+**Criterios de aceptación:**
+- El esquema se migra desde cero con Flyway.
+- No hay secretos en Git.
+- El contenedor corre con usuario no root.
+- El pipeline falla si los tests fallan.
+- Existe procedimiento de backup/restore probado.
+
+---
+
+## 6. Flujos principales
+
+### 6.1. Bootstrap del sistema
+
+1. Se levanta la BD vacía.
+2. `POST /api/v1/auth/register` crea el primer `ADMIN`.
+3. A partir de ahí, el endpoint responde `403`.
+4. El `ADMIN` crea docentes, secretarias y la estructura del año.
+
+### 6.2. Preparación de un año escolar
+
+1. `ADMIN` crea `AnioEscolar` en `PLANIFICADO`.
+2. Crea los 4 `Bimestre` en `PLANIFICADO`.
+3. Crea `Seccion` (3°A, 3°B...).
+4. Crea `Curso` (materia × sección × docente).
+5. Define `HorarioBloque`.
+6. Cuando todo está listo, abre el año (`ABIERTO`) y el primer bimestre.
+7. El año anterior queda `CERRADO` y solo lectura.
+
+### 6.3. Matrícula de un alumno
+
+1. `SECRETARIA` registra la cuenta y el perfil del alumno.
+2. Registra o vincula al apoderado.
+3. Crea `Matricula` para el año en una sección, en `EN_CURSO`.
+4. La sección puede modificarse antes de `AnioEscolar.fechaInicio` y sin actividad; al iniciar clases, queda fijada.
+5. Si hay retiro: marca `situacionFinal=RETIRADO` y `Estudiante.estado=RETIRADO`.
+
+### 6.4. Planificación de una unidad
+
+1. `DOCENTE` entra a uno de sus cursos.
+2. Crea `Unidad` en `BORRADOR` para el bimestre vigente o planificado.
+3. Añade `Contenido` ordenados.
+4. Publica la unidad cuando está lista.
+5. El alumno y el apoderado ven la unidad publicada.
+
+### 6.5. Asistencia de una clase
+
+1. `DOCENTE` selecciona un `HorarioBloque` y una fecha.
+2. El sistema valida que la fecha caiga en el día del bloque y en un bimestre `ABIERTO`.
+3. Carga la lista de alumnos de la sección.
+4. Registra `PRESENTE`, `TARDANZA` o `FALTA` para cada uno.
+5. Si hay ticket aprobado, la falta se guarda como `JUSTIFICADA`.
+
+### 6.6. Calificación de una unidad
+
+1. `DOCENTE` abre una unidad de su curso.
+2. Define un `criterio` ("Examen parcial", "Práctica 1").
+3. Carga la lista de alumnos de la sección.
+4. Registra notas `0.00`–`20.00`.
+5. El sistema calcula promedios simples de unidad y bimestre.
+6. El alumno y el apoderado ven las notas si la unidad está publicada.
+
+### 6.7. Justificación de inasistencia
+
+1. `APODERADO` crea un ticket para un hijo, con fecha y sustento.
+2. `SECRETARIA` revisa el sustento.
+3. Si aprueba, las faltas del alcance pasan a `JUSTIFICADA` en la misma transacción.
+4. Si rechaza, la asistencia no cambia.
+5. Si la asistencia aún no existía, se justificará al registrarse.
+
+### 6.8. Cierre de bimestre y año
+
+1. `ADMIN` cierra el bimestre.
+2. Se bloquean nuevas notas y asistencias de ese bimestre.
+3. Si no es el IV bimestre, se abre el siguiente.
+4. Al cerrar el IV bimestre, se cierra el año.
+5. Se calcula `situacionFinal` de cada matrícula: `APROBADO` solo si todos los cursos están aprobados y la asistencia global es ≥ `70%`.
+6. Se marca `EGRESADO` a los alumnos de 5° aprobados.
+7. El año queda `CERRADO` y solo lectura.
+
+---
+
+## 7. Base de datos y migraciones
+
+### 7.1. Estrategia durante el desarrollo
+
+- El esquema se genera con JPA (`spring.jpa.hibernate.ddl-auto=update`).
+- No hay migraciones durante la construcción del modelo: el modelo todavía cambia.
+- Para aplicar un cambio de esquema se recrea la BD de desarrollo:
+
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
+- Los tests de integración usan Testcontainers; no tocan la BD de desarrollo.
+- No se versionan datos de desarrollo ni volúmenes.
+
+### 7.2. Flyway en la fase final (M11)
+
+Cuando el modelo esté estable:
+
+```text
+src/main/resources/db/migration/
+  V1__schema_inicial.sql
+  V2__indices_parciales.sql
+```
+
+Reglas:
+- `spring.jpa.hibernate.ddl-auto=validate` en todos los entornos.
+- Ningún cambio de esquema se hace a mano en producción.
+- Los índices parciales y checks van en SQL.
+- Los tests de migración ejecutan Flyway sobre Testcontainers.
+- La migración se prueba desde cero y sobre una copia de la BD real antes de desplegar.
+
+### 7.3. Convenciones de esquema
+
+- Tablas en plural, snake_case: `anios_escolares`, `horario_bloques`, `calificaciones`.
+- FKs `<entidad>_id`.
+- Enums como `VARCHAR` + `CHECK`, no ordinales.
+- Timestamps `created_at`, `updated_at`.
+- Borrado lógico con `activo` donde aplique.
+- No se usan nombres reservados de SQL.
+
+### 7.4. Datos semilla
+
+Para desarrollo se puede cargar un año 2026, 4 bimestres, secciones 1°A–5°A, materias base y un usuario por rol. Los datos semilla no se ejecutan en producción.
+
+---
+
+## 8. Convenciones de API
+
+### 8.1. Prefijo y versionado
+
+- Base: `/api/v1`.
+- Cambios breaking se hacen con `/api/v2` o con una migración coordinada del SPA.
+- El reemplazo de `/admin/periodos` por `/admin/anios` es breaking y debe coordinarse con el frontend.
+
+### 8.2. Formato
+
+- JSON en camelCase.
+- Fechas ISO-8601 (`YYYY-MM-DD` para `LocalDate`, `YYYY-MM-DDTHH:mm:ss` para `LocalDateTime`).
+- Notas como número decimal con dos decimales.
+- Booleanos reales, no strings.
+- No se devuelven entidades JPA; solo DTOs.
+
+### 8.3. Paginación
+
+Listados grandes usan:
+
+```json
+{
+  "content": [],
+  "page": 0,
+  "size": 20,
+  "totalElements": 0,
+  "totalPages": 0
+}
+```
+
+Parámetros: `page`, `size`, `sort`. Los listados pequeños pueden devolver arrays, pero deben documentarlo.
+
+### 8.4. Semántica HTTP
+
+- `GET`: lectura, sin efectos.
+- `POST`: creación o acción no idempotente.
+- `PUT`: reemplazo completo (habilitaciones, horario, asistencia bulk, notas bulk).
+- `PATCH`: cambio parcial de estado o campo.
+- `DELETE`: baja física solo cuando no hay historia; si hay historia, `PATCH` de estado.
+
+### 8.5. Swagger
+
+- Cada endpoint documenta rol, request, response y códigos de error.
+- Los DTOs tienen ejemplos.
+- Las reglas de negocio relevantes se anotan en la descripción.
+
+---
+
+## 9. Testing y CI
+
+### 9.1. Tipos de prueba
+
+| Tipo | Herramienta | Qué cubre |
+|---|---|---|
+| Unitarias | JUnit 5 | Reglas de dominio, cálculos, estados |
+| Integración | Testcontainers PostgreSQL 17 | Repositorios, constraints, transacciones |
+| Web | MockMvc | Controllers, validación, seguridad |
+| Seguridad | MockMvc + JWT | RBAC y ownership |
+| Migraciones | Flyway + Testcontainers | Solo en M11 |
+
+### 9.2. Reglas
+
+- Cada módulo debe tener tests de sus reglas críticas.
+- Los tests no tocan la BD de desarrollo.
+- Los tests de integración usan una PostgreSQL efímera por clase o contenedor compartido.
+- Los tests de constraints prueban los `409` y `400`.
+- Los tests de ownership prueban que un usuario no accede a recursos ajenos.
+- El CI ejecuta `./mvnw test` en cada push y en PR a `main`.
+
+### 9.3. Cobertura mínima esperada
+
+No se persigue un porcentaje ciego, pero sí:
+- Toda regla de negocio documentada tiene al menos un test.
+- Todo endpoint tiene test de éxito y de error principal.
+- Todo estado y transición crítica tiene test.
+
+---
+
+## 10. Operación y entorno
+
+### 10.1. Docker Compose
+
+Servicios:
+- `postgres`: PostgreSQL 17, accesible solo en `127.0.0.1`.
+- `backend`: Spring Boot en `http://localhost:8080`.
+
+Comandos:
+
+```bash
+docker compose up -d
+docker compose down
+docker compose down -v      # borra volumen de BD
+./mvnw spring-boot:run      # desarrollo con recarga
+./mvnw test                 # tests con Testcontainers
+```
+
+### 10.2. Variables de entorno
+
+| Variable | Uso |
+|---|---|
+| `SPRING_DATASOURCE_URL` | URL JDBC |
+| `SPRING_DATASOURCE_USERNAME` | Usuario BD |
+| `SPRING_DATASOURCE_PASSWORD` | Password BD |
+| `APP_JWT_SECRET` | Secreto JWT (obligatorio) |
+| `APP_JWT_EXPIRATION_MS` | Expiración del token en milisegundos |
+| `APP_SECURITY_LOGIN_MAX_ATTEMPTS` | Intentos de login |
+| `APP_SECURITY_LOGIN_WINDOW_MINUTES` | Ventana de intentos |
+| `APP_SECURITY_LOGIN_COOLDOWN_MINUTES` | Duración del bloqueo |
+| `APP_CORS_ALLOWED_ORIGINS` | Orígenes del SPA |
+| `POSTGRES_DB` | Nombre de la BD en Docker |
+| `POSTGRES_USER` | Usuario de la BD en Docker |
+| `POSTGRES_PASSWORD` | Password de la BD en Docker |
+| `POSTGRES_PORT` | Puerto host de PostgreSQL |
+| `BACKEND_PORT` | Puerto host del backend |
+| `SUPABASE_URL` | URL del proyecto Supabase |
+| `SUPABASE_SERVICE_ROLE_KEY` | Clave de servicio (solo backend) |
+| `SUPABASE_BUCKET_MATERIALES` | Bucket de materiales |
+| `SUPABASE_BUCKET_SUSTENTOS` | Bucket de sustentos |
+
+Reglas:
+- `.env` no se versiona; `.env.example` sí.
+- En Docker, el backend no arranca sin `APP_JWT_SECRET`; `application.properties` conserva un default de desarrollo que debe eliminarse antes de producción.
+- La service role key nunca llega al frontend.
+- Postgres solo escucha en `127.0.0.1`.
+
+### 10.3. Supabase Storage
+
+- Buckets privados.
+- El backend sube y firma URLs.
+- Los archivos se organizan por año/curso/material.
+- Se validan MIME, tamaño y extensión.
+- La eliminación es diferida y auditada.
+
+### 10.4. Logs y salud
+
+- Logs estructurados con nivel configurable.
+- No se loguean contraseñas, tokens ni datos sensibles.
+- Health check en `/actuator/health` si se añade Actuator.
+- Alertas básicas de errores 5xx.
+
+---
+
+## 11. Estado actual y roadmap
+
+### 11.1. Estado al iniciar la v3
+
+| Módulo | Estado | Nota |
+|---|---|---|
+| M0 Fundaciones | 🔧 | Docker y CI existen; falta README |
+| M1 Identidad y acceso | ✅ | Implementado; se adapta a los perfiles |
+| M2 Estructura académica | 🔧 | Existe con semántica de bimestre; se reescribe a año + bimestre |
+| M3 Alumnos y matrícula | 🔧 | Existe matrícula simple; se añade `anio_id`, `seccion_id` y `situacionFinal` |
+| M4 Planificación | 🆕 | Nuevo |
+| M5 Asistencia | 🆕 | Nuevo |
+| M6 Calificaciones | 🆕 | Nuevo |
+| M7 Justificaciones | 🆕 | Nuevo |
+| M8 Materiales y Storage | 🆕 | Nuevo |
+| M9 Comunicados | 🆕 | Nuevo |
+| M10 Cierre y reportes | 🆕 | Nuevo |
+| M11 Endurecimiento y Flyway | 🆕 | Pendiente |
+
+### 11.2. Orden de implementación
+
+1. M0: README, reset, revisión de fundaciones.
+2. M1: adaptar identidad y perfiles al modelo v3.
+3. M2: año + bimestre + secciones + cursos + horario.
+4. M3: matrícula anual con `seccion_id`.
+5. M4: unidades y contenidos.
+6. M5: asistencia por bloque y fecha.
+7. M6: calificaciones por criterio.
+8. M7: tickets.
+9. M8: materiales y Storage.
+10. M9: comunicados.
+11. M10: cierre y reportes.
+12. M11: endurecimiento y Flyway.
+
+### 11.3. Definición de “módulo terminado”
+
+Un módulo se considera terminado cuando:
+- El código compila y los tests pasan.
+- Las reglas de este documento están implementadas.
+- Swagger está actualizado.
+- Hay tests de éxito y de error.
+- `CONTEXT.md` se actualizó si cambió alguna decisión.
+- El frontend tiene el contrato estable o se documentó el cambio.
+
+---
+
+## 12. Decisiones, supuestos y limitaciones
+
+### 12.1. Decisiones cerradas
+
+| # | Decisión |
+|---|---|
+| 1 | `PeriodoAcademico` se reemplaza por `AnioEscolar` (tabla `anios_escolares`). |
+| 2 | La matrícula es anual y lleva `seccion_id`. No hay `MatriculaSeccion`. La sección puede cambiarse solo antes de `AnioEscolar.fechaInicio` (primer día de clases) y sin actividad registrada. |
+| 3 | No hay `SesionClase`: la asistencia se registra por `(bloque_id, fecha, matricula_id)`. |
+| 4 | No hay `Evaluacion`: la calificación usa `criterio` libre y promedio simple. |
+| 5 | No hay módulo de pagos, pensiones ni cuotas. |
+| 6 | No hay reprogramaciones de clases. |
+| 7 | Nota aprobatoria `11.00`; asistencia mínima `70%`. `JUSTIFICADA` cuenta como asistencia efectiva. |
+| 8 | `PLANIFICADO` existe para año y bimestre, y es editable. |
+| 9 | `Comunicado` es un mensaje simple: autor, año, contenido, sección opcional y fecha/hora. |
+| 10 | Flyway se implementa al final (M11); durante el desarrollo se recrea la BD. |
+| 11 | Un curso tiene un solo docente. |
+| 12 | Los promedios se calculan; no hay actas inmutables. |
+| 13 | `SECRETARIA` publica solo comunicados generales; `DOCENTE` solo en sus secciones. |
+| 14 | Para aprobar el grado, todos los cursos deben tener promedio anual ≥ `11.00` y la asistencia global debe ser ≥ `70%`. |
+
+### 12.2. Supuestos a confirmar con el colegio
+
+- La sección puede cambiarse solo antes de `AnioEscolar.fechaInicio` y sin actividad registrada.
+- La asistencia efectiva es `PRESENTE + TARDANZA + JUSTIFICADA`; solo `FALTA` es inasistencia injustificada.
+- El porcentaje de asistencia se calcula sobre asistencias registradas, no sobre días calendario.
+- Si falta la nota de algún curso, el cierre se bloquea y requiere revisión de `ADMIN`.
+- El cierre de año es una acción manual de `ADMIN`, no automática por fecha.
+
+### 12.3. Limitaciones conocidas
+
+1. No hay reprogramaciones.
+2. No hay cambios de sección una vez iniciado el año.
+3. No hay pagos.
+4. No hay actas inmutables.
+5. No hay entidad `Aula`.
+6. No hay primaria ni inicial.
+7. No hay notificaciones push/correo.
+8. El rate limiting de login es en memoria; no sirve con múltiples instancias.
+
+---
+
+## 13. Registro de cambios
+
+### v3 — 2026-11-02
+
+- Se simplifica el modelo para un proyecto universitario.
+- Se elimina `MatriculaSeccion`; `Matricula` es anual con `seccion_id`.
+- Se elimina `SesionClase`; la asistencia cuelga de `(bloque_id, fecha, matricula_id)`.
+- Se elimina `Evaluacion`; `Calificacion` usa `criterio` libre y promedio simple.
+- Se elimina el estado de pago de `Matricula`.
+- Se simplifica `Comunicado` a un mensaje con autor, contenido, fecha/hora y sección opcional; sin título.
+- `SECRETARIA` puede publicar comunicados generales; `DOCENTE` solo en sus secciones.
+- Se documenta que no hay reprogramaciones y que la sección solo se cambia antes de iniciar clases.
+- Para aprobar el grado se exige aprobar todos los cursos y cumplir la asistencia global.
+- `JUSTIFICADA` cuenta como asistencia efectiva.
+- Flyway se difiere a M11; durante el desarrollo se recrea la BD.
+- Se mantiene `PLANIFICADO` como estado editable.
+
+### v2 — 2026-11-02
+
+- Propuesta intermedia con un modelo más granular (matrícula por sección, sesiones de clase y evaluaciones con peso).
+- Reemplazada por la v3 al simplificar el alcance para un proyecto universitario.
+- Se mantuvo el modelo anual `AnioEscolar` + `Bimestre` y el resto de decisiones de fondo.
+
+### v1 — anterior
+
+- Modelo inicial con `PeriodoAcademico` como bimestre.
+- Módulos 1–3 implementados.
+- 14 entidades y 79 tests.
+- Docker Compose y CI.
