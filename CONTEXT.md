@@ -442,8 +442,12 @@ Reglas:
 Único `(curso_id, bimestre_id, numero)`.
 Reglas:
 - Solo el docente del curso crea/edita sus unidades.
+- El `numero` lo asigna el sistema: siguiente correlativo dentro del curso y bimestre.
 - Se puede planificar en un bimestre `PLANIFICADO` o `ABIERTO`; no en `CERRADO`.
 - El estudiante y el apoderado solo ven unidades `PUBLICADA`.
+- La respuesta de una unidad incluye sus contenidos ordenados.
+- Se puede publicar una unidad sin contenidos; los contenidos que se agreguen después se ven al publicarse.
+- El `PUT` edita título, descripción y fechas; no mueve la unidad a otro bimestre.
 - No se elimina si tiene calificaciones o contenidos con materiales.
 - Se puede despublicar solo si no tiene calificaciones.
 
@@ -460,6 +464,7 @@ Reglas:
 Único `(unidad_id, orden)`.
 Reglas:
 - Es un tema planificado, no una clase dictada.
+- El `orden` lo asigna el sistema al final de la unidad; el alta no lo recibe.
 - Reordenar se hace con un endpoint bulk en dos pasadas dentro de la misma transacción (valores temporales y luego definitivos).
 - No se elimina si tiene materiales; se desvinculan o se bloquea la baja.
 
@@ -1021,19 +1026,23 @@ docker compose up -d --build
 | Método y ruta | Rol | Descripción |
 |---|---|---|
 | `GET/POST /api/v1/docente/cursos/{cursoId}/unidades` | DOCENTE | Unidades del curso |
-| `GET/PUT /api/v1/docente/unidades/{id}` | DOCENTE | Detalle/edición |
+| `GET/PUT/DELETE /api/v1/docente/unidades/{id}` | DOCENTE | Detalle/edición/baja |
 | `PATCH /api/v1/docente/unidades/{id}/estado` | DOCENTE | Publicar/despublicar |
 | `GET/POST /api/v1/docente/unidades/{id}/contenidos` | DOCENTE | Contenidos |
 | `PUT/DELETE /api/v1/docente/contenidos/{id}` | DOCENTE | Edición/baja |
 | `PUT /api/v1/docente/unidades/{id}/contenidos/orden` | DOCENTE | Reordenar |
 | `GET /api/v1/estudiante/cursos/{cursoId}/unidades` | ESTUDIANTE | Solo publicadas |
 | `GET /api/v1/apoderado/hijos/{id}/cursos/{cursoId}/unidades` | APODERADO | Solo publicadas |
+| `GET /api/v1/admin/cursos/{cursoId}/unidades` | ADMIN | Lectura, incluye borradores |
+| `GET /api/v1/admin/unidades/{id}` | ADMIN | Lectura, incluye borradores |
 
 **Criterios de aceptación:**
 - Un docente no puede ver ni editar unidades de un curso ajeno.
 - Un estudiante no puede ver unidades `BORRADOR`.
+- El número de la unidad y el orden del contenido son automáticos.
 - El reordenamiento no viola el unique `(unidad_id, orden)`.
 - Publicar una unidad con contenidos los hace visibles.
+- ADMIN sólo lee la planificación, incluidos los borradores.
 
 ---
 

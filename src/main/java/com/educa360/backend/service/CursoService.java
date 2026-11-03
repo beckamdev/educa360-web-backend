@@ -18,6 +18,7 @@ import com.educa360.backend.repository.CursoRepository;
 import com.educa360.backend.repository.DocenteRepository;
 import com.educa360.backend.repository.EstudianteRepository;
 import com.educa360.backend.repository.HorarioBloqueRepository;
+import com.educa360.backend.repository.UnidadRepository;
 import com.educa360.backend.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +45,7 @@ public class CursoService {
     private final DocenteRepository docenteRepository;
     private final EstudianteRepository estudianteRepository;
     private final UserRepository userRepository;
+    private final UnidadRepository unidadRepository;
     private final MateriaService materiaService;
     private final SeccionService seccionService;
     private final MatriculaService matriculaService;
@@ -53,6 +55,7 @@ public class CursoService {
                         DocenteRepository docenteRepository,
                         EstudianteRepository estudianteRepository,
                         UserRepository userRepository,
+                        UnidadRepository unidadRepository,
                         MateriaService materiaService,
                         SeccionService seccionService,
                         MatriculaService matriculaService) {
@@ -61,6 +64,7 @@ public class CursoService {
         this.docenteRepository = docenteRepository;
         this.estudianteRepository = estudianteRepository;
         this.userRepository = userRepository;
+        this.unidadRepository = unidadRepository;
         this.materiaService = materiaService;
         this.seccionService = seccionService;
         this.matriculaService = matriculaService;
@@ -154,8 +158,12 @@ public class CursoService {
             throw new ConflictException("El año " + curso.getSeccion().getAnio().getAnio()
                     + " está CERRADO: no se pueden eliminar cursos");
         }
-        // TODO M5/M6: bloquear con 409 si el curso ya tiene asistencias,
-        // calificaciones, unidades o materiales. Esas entidades aún no existen.
+        if (unidadRepository.existsByCursoId(curso.getId())) {
+            throw new ConflictException("El curso ya tiene planificación (unidades): "
+                    + "elimínalas antes de borrar el curso");
+        }
+        // TODO M5/M6/M8: bloquear con 409 si el curso ya tiene asistencias,
+        // calificaciones o materiales. Esas entidades aún no existen.
         horarioRepository.deleteByCurso(curso); // primero los bloques: tienen FK al curso
         cursoRepository.delete(curso);
     }
