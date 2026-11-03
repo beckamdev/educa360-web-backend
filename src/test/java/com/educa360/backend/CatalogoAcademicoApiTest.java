@@ -181,7 +181,7 @@ class CatalogoAcademicoApiTest {
         crearAnio(2026, "Año Escolar 2026", "2026-03-02");
 
         assertEquals(409, crear(ANIOS, anioBody(2026, "Otro nombre",
-                "2027-03-01")).getResponse().getStatus(),
+                "2026-03-01")).getResponse().getStatus(),
                 "el número de año es único");
         assertEquals(409, crear(ANIOS, anioBody(2027, "Año Escolar 2026",
                 "2027-03-01")).getResponse().getStatus(),

@@ -476,18 +476,24 @@ Reglas:
 |---|---|---|
 | `matricula_id` | FK → `Matricula` | obligatoria |
 | `bloque_id` | FK → `HorarioBloque` | obligatoria |
-| `fecha` | LocalDate | obligatoria |
+| `fecha` | LocalDate | obligatoria; no futura |
 | `estado` | enum | `PRESENTE`, `TARDANZA`, `FALTA`, `JUSTIFICADA` |
 | `observacion` | String | opcional |
-| `ticket_id` | FK → `TicketJustificacion` | opcional; trazabilidad de la justificación |
+| `ticket_id` | FK → `TicketJustificacion` | se agrega en M7; trazabilidad de la justificación |
 | `registradoPor_id` | FK → `Docente` | opcional |
 
 Único `(matricula_id, bloque_id, fecha)`.
 Reglas:
 - El bloque debe pertenecer a un curso de la sección de la matrícula.
 - La fecha debe caer en el día del bloque y dentro de un bimestre `ABIERTO`.
+- No se registra asistencia de una fecha futura.
 - Solo el docente del curso registra asistencia.
-- Si existe un ticket `APROBADO` para el alumno y la fecha (y bloque, si aplica), la asistencia nace o se actualiza a `JUSTIFICADA` y se vincula `ticket_id`.
+- El docente envía `asistio` (verdadero/falso), no el estado: el sistema deriva `PRESENTE` o `TARDANZA` según la hora del servidor. Se considera `TARDANZA` después de 15 minutos desde `horaInicio` del bloque.
+- Para fechas pasadas se asume `PRESENTE`: no hay forma de reconstruir la hora de llegada.
+- `JUSTIFICADA` no la marca el docente: nace en M7 cuando Secretaría aprueba un ticket. En M5 el enum existe, pero el estado no es alcanzable desde la API.
+- El registro es un upsert parcial por bloque y fecha: solo viajan los alumnos que se registran o corrigen.
+- La consulta de la clase devuelve a todos los alumnos activos de la sección; los no registrados llegan con estado `null`.
+- El historial del alumno incluye total, efectivas, faltas y porcentaje.
 - No se elimina; se corrige dejando auditoría.
 - **Limitación:** no hay reprogramaciones. Si una clase se mueve de fecha, el sistema no la representa; se registra solo en el día del bloque.
 
@@ -1055,28 +1061,64 @@ docker compose up -d --build
 **Reglas:**
 - La asistencia se identifica por `(matricula_id, bloque_id, fecha)`.
 - El bloque debe pertenecer a un curso de la sección de la matrícula.
-- La fecha debe caer en el día del bloque y dentro de un bimestre `ABIERTO`.
-- Solo el docente del curso registra asistencia.
-- Un ticket aprobado justifica automáticamente.
-- No se borra una asistencia; se corrige con auditoría.
-- La asistencia se registra en bloque (todos los alumnos de la sección) y se puede corregir.
+- La fecha debe caer en el día del bloque y dentro de un bimestre `ABIERTO` del año de la matrícula.
+- No se registra asistencia de una fecha futura (`400`).
+- Solo el docente dueño del curso registra o corrige; un curso ajeno responde `404`.
+- El docente no envía el estado: envía `asistio` (verdadero/falso). El sistema guarda `PRESENTE` o `FALTA`.
+- El sistema deriva `TARDANZA` con la hora del servidor: más de **15 minutos** después de `HorarioBloque.horaInicio`. Para fechas pasadas se asume `PRESENTE`, porque no se puede reconstruir la hora de llegada.
+- El docente no marca `JUSTIFICADA`: ese estado nace en M7 cuando Secretaría aprueba un ticket. En M5 el enum existe pero no es alcanzable desde la API; una asistencia ya `JUSTIFICADA` no se puede pisar (`409`).
+- El `PUT` es un **upsert parcial** por bloque y fecha: solo viajan los alumnos que se registran o corrigen; los ausentes conservan su estado.
+- El `GET` de la clase devuelve a **todos** los alumnos activos de la sección; los no registrados llegan con `estado: null`.
+- No se borra una asistencia; se corrige y queda la auditoría (`updatedAt`, `registradoPor`).
+- Si la matrícula ya tiene asistencias, no se puede cambiar de sección (`409`).
+- Si el curso ya tiene asistencias, no se puede reemplazar su horario ni eliminarlo (`409`).
 - No hay reprogramaciones: si la clase se mueve de fecha, no se representa.
 
 **Endpoints:**
 
 | Método y ruta | Rol | Descripción |
 |---|---|---|
-| `GET /api/v1/docente/cursos/{cursoId}/asistencia?bloqueId=&fecha=` | DOCENTE | Lista de la clase |
-| `PUT /api/v1/docente/cursos/{cursoId}/asistencia` | DOCENTE | Asistencia bulk por bloque y fecha |
-| `GET /api/v1/estudiante/asistencias?anioId=&bimestreId=` | ESTUDIANTE | Propias |
-| `GET /api/v1/apoderado/hijos/{id}/asistencias` | APODERADO | Del hijo |
-| `GET /api/v1/secretaria/estudiantes/{id}/asistencias` | SECRETARIA | Del alumno |
+| `GET /api/v1/docente/cursos/{cursoId}/asistencia?bloqueId=&fecha=` | DOCENTE | Hoja de la clase: todos los alumnos, `estado` nullable |
+| `PUT /api/v1/docente/cursos/{cursoId}/asistencia` | DOCENTE | Upsert parcial de la hoja |
+| `GET /api/v1/estudiante/asistencias?anioId=&bimestreId=` | ESTUDIANTE | Historial y resumen propios |
+| `GET /api/v1/apoderado/hijos/{hijoId}/asistencias?anioId=&bimestreId=` | APODERADO | Historial y resumen del hijo vinculado |
+| `GET /api/v1/secretaria/estudiantes/{id}/asistencias?anioId=&bimestreId=` | SECRETARIA | Historial y resumen del alumno |
+| `GET /api/v1/admin/estudiantes/{id}/asistencias?anioId=&bimestreId=` | ADMIN | Lectura del historial |
+| `GET /api/v1/admin/cursos/{cursoId}/asistencia?bloqueId=&fecha=` | ADMIN | Lectura de la hoja de clase |
+
+Cuerpo del `PUT`:
+
+```json
+{
+  "bloqueId": 5,
+  "fecha": "2026-03-09",
+  "asistencias": [
+    { "matriculaId": 21, "asistio": true },
+    { "matriculaId": 22, "asistio": false, "observacion": "Sin aviso" }
+  ]
+}
+```
+
+**Resumen de asistencia:**
+
+```text
+efectivas  = PRESENTE + TARDANZA + JUSTIFICADA
+porcentaje = efectivas / asistencias registradas × 100
+```
+
+Solo `FALTA` es inasistencia injustificada. El mínimo para aprobar es `70%`. Sin registros, el porcentaje es `0.00`.
 
 **Criterios de aceptación:**
-- No se registra asistencia en bimestre cerrado.
-- No se registra asistencia de un alumno de otra sección.
-- Una fecha que no corresponde al día del bloque devuelve `400`.
-- Un ticket aprobado cambia la falta a justificada.
+- No se registra asistencia en bimestre cerrado ni en año cerrado (`409`).
+- No se registra asistencia de un alumno de otra sección ni de una matrícula retirada.
+- Una fecha futura o que no corresponde al día del bloque devuelve `400`.
+- El docente no puede enviar `TARDANZA` ni `JUSTIFICADA`; el estado se deriva o se reserva a M7.
+- Un `PUT` parcial no borra ni altera a los alumnos que no aparecen en el cuerpo.
+- La hoja de clase incluye a los alumnos sin registro con `estado: null`.
+- El resumen devuelve total, presentes, tardanzas, justificadas, faltas, efectivas y porcentaje.
+- Estudiante, apoderado, secretaría y admin solo leen lo que su rol permite.
+- `TARDANZA` se deriva pasados 15 minutos del inicio del bloque.
+- Con asistencias registradas, reemplazar el horario o eliminar el curso responde `409`.
 
 ---
 

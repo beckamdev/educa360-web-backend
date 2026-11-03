@@ -10,6 +10,7 @@ import com.educa360.backend.entity.Seccion;
 import com.educa360.backend.entity.User;
 import com.educa360.backend.exception.ConflictException;
 import com.educa360.backend.repository.AnioEscolarRepository;
+import com.educa360.backend.repository.AsistenciaRepository;
 import com.educa360.backend.repository.EstudianteRepository;
 import com.educa360.backend.repository.MatriculaRepository;
 import com.educa360.backend.repository.SeccionRepository;
@@ -60,12 +61,15 @@ class MatriculaServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private AsistenciaRepository asistenciaRepository;
+
     private MatriculaService servicio;
 
     @BeforeEach
     void setUp() {
         servicio = new MatriculaService(matriculaRepository, estudianteRepository,
-                seccionRepository, anioRepository, userRepository,
+                seccionRepository, anioRepository, userRepository, asistenciaRepository,
                 reloj(LocalDate.of(2026, 1, 15)));
     }
 
@@ -147,12 +151,25 @@ class MatriculaServiceTest {
     @DisplayName("El cambio de sección se bloquea desde el primer día de clases")
     void cambioDeSeccionConAnioIniciado() {
         servicio = new MatriculaService(matriculaRepository, estudianteRepository,
-                seccionRepository, anioRepository, userRepository,
+                seccionRepository, anioRepository, userRepository, asistenciaRepository,
                 reloj(LocalDate.of(2026, 3, 2)));
         AnioEscolar anio = anio(10L, 2026, INICIO);
         Matricula matricula = matricula(5L, estudiante(1L, Estudiante.EstadoEstudiante.ACTIVO),
                 anio, seccion(2L, "A", anio));
         when(matriculaRepository.findById(5L)).thenReturn(Optional.of(matricula));
+
+        assertThrows(ConflictException.class,
+                () -> servicio.cambiarSeccion(5L, new CambioSeccionRequest(3L)));
+    }
+
+    @Test
+    @DisplayName("El cambio de sección se bloquea si la matrícula ya tiene asistencias")
+    void cambioDeSeccionConAsistencias() {
+        AnioEscolar anio = anio(10L, 2026, INICIO);
+        Matricula matricula = matricula(5L, estudiante(1L, Estudiante.EstadoEstudiante.ACTIVO),
+                anio, seccion(2L, "A", anio));
+        when(matriculaRepository.findById(5L)).thenReturn(Optional.of(matricula));
+        when(asistenciaRepository.existsByMatriculaId(5L)).thenReturn(true);
 
         assertThrows(ConflictException.class,
                 () -> servicio.cambiarSeccion(5L, new CambioSeccionRequest(3L)));

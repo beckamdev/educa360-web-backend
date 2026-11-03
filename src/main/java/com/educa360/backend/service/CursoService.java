@@ -14,6 +14,7 @@ import com.educa360.backend.entity.User;
 import com.educa360.backend.exception.BadRequestException;
 import com.educa360.backend.exception.ConflictException;
 import com.educa360.backend.exception.NotFoundException;
+import com.educa360.backend.repository.AsistenciaRepository;
 import com.educa360.backend.repository.CursoRepository;
 import com.educa360.backend.repository.DocenteRepository;
 import com.educa360.backend.repository.EstudianteRepository;
@@ -46,6 +47,7 @@ public class CursoService {
     private final EstudianteRepository estudianteRepository;
     private final UserRepository userRepository;
     private final UnidadRepository unidadRepository;
+    private final AsistenciaRepository asistenciaRepository;
     private final MateriaService materiaService;
     private final SeccionService seccionService;
     private final MatriculaService matriculaService;
@@ -56,6 +58,7 @@ public class CursoService {
                         EstudianteRepository estudianteRepository,
                         UserRepository userRepository,
                         UnidadRepository unidadRepository,
+                        AsistenciaRepository asistenciaRepository,
                         MateriaService materiaService,
                         SeccionService seccionService,
                         MatriculaService matriculaService) {
@@ -65,6 +68,7 @@ public class CursoService {
         this.estudianteRepository = estudianteRepository;
         this.userRepository = userRepository;
         this.unidadRepository = unidadRepository;
+        this.asistenciaRepository = asistenciaRepository;
         this.materiaService = materiaService;
         this.seccionService = seccionService;
         this.matriculaService = matriculaService;
@@ -162,8 +166,11 @@ public class CursoService {
             throw new ConflictException("El curso ya tiene planificación (unidades): "
                     + "elimínalas antes de borrar el curso");
         }
-        // TODO M5/M6/M8: bloquear con 409 si el curso ya tiene asistencias,
-        // calificaciones o materiales. Esas entidades aún no existen.
+        if (asistenciaRepository.existsByBloqueCursoId(curso.getId())) {
+            throw new ConflictException("El curso ya tiene asistencias: "
+                    + "no se puede eliminar");
+        }
+        // TODO M6/M8: bloquear con 409 si el curso ya tiene calificaciones o materiales.
         horarioRepository.deleteByCurso(curso); // primero los bloques: tienen FK al curso
         cursoRepository.delete(curso);
     }
@@ -214,8 +221,10 @@ public class CursoService {
             throw new ConflictException("El año " + curso.getSeccion().getAnio().getAnio()
                     + " está CERRADO: no se puede modificar el horario");
         }
-        // TODO M5: si el curso ya tiene asistencias, la hoja no se puede
-        // reemplazar (409). La entidad Asistencia aún no existe.
+        if (asistenciaRepository.existsByBloqueCursoId(curso.getId())) {
+            throw new ConflictException("El curso ya tiene asistencias: "
+                    + "no se puede reemplazar el horario");
+        }
 
         List<HorarioBloque> nuevos = request.bloques().stream()
                 .map(b -> new HorarioBloque(curso, b.dia(), b.horaInicio(), b.horaFin()))
