@@ -142,7 +142,7 @@ class CatalogoAcademicoApiTest {
     @DisplayName("El año nace PLANIFICADO y sólo se abre con PATCH /estado")
     void anioNacePlanificadoYSeAbre() throws Exception {
         MvcResult creado = crear(ANIOS, anioBody(2026, "Año Escolar 2026",
-                "2026-03-02", "2026-12-18"));
+                "2026-03-02"));
         assertEquals(201, creado.getResponse().getStatus());
         String cuerpo = creado.getResponse().getContentAsString();
         assertTrue(cuerpo.contains("\"estado\":\"PLANIFICADO\""), "debe nacer planificado: " + cuerpo);
@@ -156,18 +156,17 @@ class CatalogoAcademicoApiTest {
     }
 
     @Test
-    @DisplayName("Fechas invertidas (fin antes que inicio) se rechazan con 400")
-    void fechasInvertidasResponde400() throws Exception {
-        MvcResult resultado = crear(ANIOS, anioBody(2026, "Raro", "2026-12-18", "2026-03-02"));
-
-        assertEquals(400, resultado.getResponse().getStatus());
+    @DisplayName("La fecha de inicio debe pertenecer al año calendario (400)")
+    void fechaInicioFueraDelAnioResponde400() throws Exception {
+        assertEquals(400, crear(ANIOS, anioBody(2026, "Raro", "2027-03-02"))
+                .getResponse().getStatus(), "el año 2026 no puede empezar en 2027");
     }
 
     @Test
     @DisplayName("Sólo UN año abierto a la vez: abrir otro con vigente responde 409")
     void soloUnAnioAbiertoALaVez() throws Exception {
-        long primero = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
-        long segundo = crearAnio(2027, "Año Escolar 2027", "2027-03-01", "2027-12-17");
+        long primero = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long segundo = crearAnio(2027, "Año Escolar 2027", "2027-03-01");
 
         assertEquals(200, cambiarEstadoAnio(primero, "ABIERTO"));
         assertEquals(409, cambiarEstadoAnio(segundo, "ABIERTO"), "no puede haber dos vigentes");
@@ -179,30 +178,20 @@ class CatalogoAcademicoApiTest {
     @Test
     @DisplayName("Año o nombre duplicados se rechazan con 409")
     void anioYNombreDuplicadosResponden409() throws Exception {
-        crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        crearAnio(2026, "Año Escolar 2026", "2026-03-02");
 
         assertEquals(409, crear(ANIOS, anioBody(2026, "Otro nombre",
-                "2027-03-01", "2027-12-17")).getResponse().getStatus(),
+                "2027-03-01")).getResponse().getStatus(),
                 "el número de año es único");
         assertEquals(409, crear(ANIOS, anioBody(2027, "Año Escolar 2026",
-                "2027-03-01", "2027-12-17")).getResponse().getStatus(),
+                "2027-03-01")).getResponse().getStatus(),
                 "el nombre es único");
-    }
-
-    @Test
-    @DisplayName("Dos años con fechas solapadas se rechazan con 409")
-    void aniosSolapadosResponden409() throws Exception {
-        crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
-
-        assertEquals(409, crear(ANIOS, anioBody(2027, "Año Escolar 2027",
-                "2026-12-01", "2027-11-30")).getResponse().getStatus(),
-                "las fechas se solapan con el año 2026");
     }
 
     @Test
     @DisplayName("Un año CERRADO es solo lectura: no se edita ni se crea estructura")
     void anioCerradoEsSoloLectura() throws Exception {
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         long seccion = nuevaSeccion(3, "A", anio);
         long docente = crearDocente("doc1@educa360.pe", "20000011");
         long materia = crearMateria("Matematicas");
@@ -212,7 +201,7 @@ class CatalogoAcademicoApiTest {
         assertEquals(409, conToken(put(ANIOS + "/" + anio)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(anioBody(2026, "Año Escolar 2026",
-                        "2026-03-02", "2026-12-18")), admin)
+                        "2026-03-02")), admin)
                 .getResponse().getStatus(), "editar un año cerrado");
         assertEquals(409, estadoDeSeccion(3, "B", anio, null), "crear secciones en un año cerrado");
         assertEquals(409, crear(BIMESTRES_DE(anio), """
@@ -224,7 +213,7 @@ class CatalogoAcademicoApiTest {
     @Test
     @DisplayName("No se cierra un año con bimestres ABIERTOS (409)")
     void noSeCierraAnioConBimestreAbierto() throws Exception {
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         assertEquals(200, cambiarEstadoAnio(anio, "ABIERTO"));
         long bimestre = crearBimestre(anio, 1, "2026-03-02", "2026-05-15");
         assertEquals(200, cambiarEstadoBimestre(bimestre, "ABIERTO"));
@@ -241,7 +230,7 @@ class CatalogoAcademicoApiTest {
     @Test
     @DisplayName("El bimestre sólo se abre si el año está ABIERTO (409)")
     void bimestreSoloSeAbreConAnioAbierto() throws Exception {
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         long bimestre = crearBimestre(anio, 1, "2026-03-02", "2026-05-15");
 
         assertEquals(409, cambiarEstadoBimestre(bimestre, "ABIERTO"),
@@ -254,7 +243,7 @@ class CatalogoAcademicoApiTest {
     @Test
     @DisplayName("Sólo UN bimestre abierto a la vez (409)")
     void soloUnBimestreAbiertoALaVez() throws Exception {
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         assertEquals(200, cambiarEstadoAnio(anio, "ABIERTO"));
         long primero = crearBimestre(anio, 1, "2026-03-02", "2026-05-15");
         long segundo = crearBimestre(anio, 2, "2026-05-18", "2026-07-31");
@@ -269,15 +258,15 @@ class CatalogoAcademicoApiTest {
     @Test
     @DisplayName("Bimestre fuera del año, solapado o con número repetido responde 400/409")
     void reglasDelBimestre() throws Exception {
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         crearBimestre(anio, 1, "2026-03-02", "2026-05-15");
 
         assertEquals(400, crear(BIMESTRES_DE(anio), """
                 {"numero":2,"fechaInicio":"2026-02-01","fechaFin":"2026-04-30"}""")
                 .getResponse().getStatus(), "empieza antes del año");
         assertEquals(400, crear(BIMESTRES_DE(anio), """
-                {"numero":2,"fechaInicio":"2026-11-01","fechaFin":"2026-12-31"}""")
-                .getResponse().getStatus(), "termina después del año");
+                {"numero":2,"fechaInicio":"2026-11-01","fechaFin":"2027-01-31"}""")
+                .getResponse().getStatus(), "termina en otro año calendario");
         assertEquals(409, crear(BIMESTRES_DE(anio), """
                 {"numero":2,"fechaInicio":"2026-05-10","fechaFin":"2026-07-31"}""")
                 .getResponse().getStatus(), "se solapa con el Bimestre 1");
@@ -289,7 +278,7 @@ class CatalogoAcademicoApiTest {
     @Test
     @DisplayName("El bimestre trae su nombre derivado (Bimestre I) y su año")
     void bimestreTraeNombreDerivado() throws Exception {
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
 
         MvcResult creado = crear(BIMESTRES_DE(anio), """
                 {"numero":1,"fechaInicio":"2026-03-02","fechaFin":"2026-05-15"}""");
@@ -305,7 +294,7 @@ class CatalogoAcademicoApiTest {
     @Test
     @DisplayName("Grado fuera de 1..5 o letra inválida responden 400 (sólo secundaria)")
     void gradoFueraDeRangoResponde400() throws Exception {
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
 
         assertEquals(400, estadoDeSeccion(6, "A", anio, null), "grado 6 no existe en secundaria");
         assertEquals(400, estadoDeSeccion(0, "A", anio, null));
@@ -315,7 +304,7 @@ class CatalogoAcademicoApiTest {
     @Test
     @DisplayName("La sección trae etiqueta, año y tutor en su respuesta")
     void crearSeccionConTutor() throws Exception {
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         long tutor = crearDocente("tutor@educa360.pe", "20000010");
 
         MvcResult resultado = crear(SECCIONES, seccionBody(3, "A", anio, tutor));
@@ -332,8 +321,8 @@ class CatalogoAcademicoApiTest {
     @Test
     @DisplayName("'grado+letra' es único DENTRO de un año; en otro año sí se puede repetir")
     void seccionDuplicadaEnElAnioResponde409() throws Exception {
-        long anio2026 = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
-        long anio2027 = crearAnio(2027, "Año Escolar 2027", "2027-03-01", "2027-12-17");
+        long anio2026 = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long anio2027 = crearAnio(2027, "Año Escolar 2027", "2027-03-01");
         assertEquals(201, estadoDeSeccion(3, "A", anio2026, null));
 
         assertEquals(409, estadoDeSeccion(3, "A", anio2026, null), "misma sección repetida en el mismo año");
@@ -349,8 +338,8 @@ class CatalogoAcademicoApiTest {
     @Test
     @DisplayName("Una sección NO se puede mover de año (409)")
     void seccionNoSeMueveDeAnio() throws Exception {
-        long anio2026 = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
-        long anio2027 = crearAnio(2027, "Año Escolar 2027", "2027-03-01", "2027-12-17");
+        long anio2026 = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long anio2027 = crearAnio(2027, "Año Escolar 2027", "2027-03-01");
         long seccion = nuevaSeccion(3, "A", anio2026);
 
         assertEquals(409, conToken(put(SECCIONES + "/" + seccion)
@@ -401,7 +390,7 @@ class CatalogoAcademicoApiTest {
     void cursoSinHabilitacionResponde409() throws Exception {
         long docente = crearDocente("doc1@educa360.pe", "20000011");
         long matematicas = crearMateria("Matematicas");
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         long seccion = nuevaSeccion(1, "A", anio);
 
         assertEquals(409, curso(docente, matematicas, seccion),
@@ -415,7 +404,7 @@ class CatalogoAcademicoApiTest {
         long elva = crearDocente("doc2@educa360.pe", "20000012");
         long matematicas = crearMateria("Matematicas");
         long fisica = crearMateria("Fisica");
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         long seccion = nuevaSeccion(3, "A", anio);
 
         habilitar(dana, "[%d,%d]".formatted(matematicas, fisica));
@@ -433,7 +422,7 @@ class CatalogoAcademicoApiTest {
     void materiaDesactivadaBloqueaNuevosCursos() throws Exception {
         long dana = crearDocente("doc1@educa360.pe", "20000011");
         long matematicas = crearMateria("Matematicas");
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         long seccion3A = nuevaSeccion(3, "A", anio);
         long seccion4B = nuevaSeccion(4, "B", anio);
         habilitar(dana, "[%d]".formatted(matematicas));
@@ -454,7 +443,7 @@ class CatalogoAcademicoApiTest {
     void eliminarCursoYRepetirResponde404() throws Exception {
         long dana = crearDocente("doc1@educa360.pe", "20000011");
         long matematicas = crearMateria("Matematicas");
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         long seccion = nuevaSeccion(1, "A", anio);
         habilitar(dana, "[%d]".formatted(matematicas));
         long cursoId = nuevoCurso(dana, matematicas, seccion);
@@ -493,7 +482,7 @@ class CatalogoAcademicoApiTest {
         long elva = crearDocente("doc2@educa360.pe", "20000012");
         long matematicas = crearMateria("Matematicas");
         long fisica = crearMateria("Fisica");
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         long seccion = nuevaSeccion(3, "A", anio);
         habilitar(dana, "[%d]".formatted(matematicas));
         habilitar(elva, "[%d]".formatted(fisica));
@@ -515,7 +504,7 @@ class CatalogoAcademicoApiTest {
     void solapeEnElDocenteResponde409() throws Exception {
         long dana = crearDocente("doc1@educa360.pe", "20000011");
         long matematicas = crearMateria("Matematicas");
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         long seccion3A = nuevaSeccion(3, "A", anio);
         long seccion4B = nuevaSeccion(4, "B", anio);
         habilitar(dana, "[%d]".formatted(matematicas));
@@ -570,7 +559,7 @@ class CatalogoAcademicoApiTest {
         long elva = crearDocente("doc2@educa360.pe", "20000012");
         long matematicas = crearMateria("Matematicas");
         long fisica = crearMateria("Fisica");
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         long seccion3A = nuevaSeccion(3, "A", anio);
         long seccion4B = nuevaSeccion(4, "B", anio);
         habilitar(dana, "[%d]".formatted(matematicas));
@@ -595,7 +584,7 @@ class CatalogoAcademicoApiTest {
         long elva = crearDocente("doc2@educa360.pe", "20000012");
         long matematicas = crearMateria("Matematicas");
         long fisica = crearMateria("Fisica");
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         long seccion = nuevaSeccion(3, "A", anio);
         habilitar(dana, "[%d]".formatted(matematicas));
         habilitar(elva, "[%d]".formatted(fisica));
@@ -670,10 +659,10 @@ class CatalogoAcademicoApiTest {
         return ANIOS + "/" + anioId + "/bimestres";
     }
 
-    private String anioBody(int anio, String nombre, String inicio, String fin) {
+    private String anioBody(int anio, String nombre, String inicio) {
         return """
-                {"anio":%d,"nombre":"%s","fechaInicio":"%s","fechaFin":"%s"}"""
-                .formatted(anio, nombre, inicio, fin);
+                {"anio":%d,"nombre":"%s","fechaInicio":"%s"}"""
+                .formatted(anio, nombre, inicio);
     }
 
     private MvcResult crear(String url, String body) throws Exception {
@@ -695,8 +684,8 @@ class CatalogoAcademicoApiTest {
         return tokenDe(resultado.getResponse().getContentAsString());
     }
 
-    private long crearAnio(int anio, String nombre, String inicio, String fin) throws Exception {
-        return idDe(crear(ANIOS, anioBody(anio, nombre, inicio, fin)));
+    private long crearAnio(int anio, String nombre, String inicio) throws Exception {
+        return idDe(crear(ANIOS, anioBody(anio, nombre, inicio)));
     }
 
     private int cambiarEstadoAnio(long id, String estado) throws Exception {
@@ -782,7 +771,7 @@ class CatalogoAcademicoApiTest {
     private long cursoDeUnDocente(String email, String dni, String materia) throws Exception {
         long docente = crearDocente(email, dni);
         long materiaId = crearMateria(materia);
-        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         long seccion = nuevaSeccion(3, "A", anio);
         habilitar(docente, "[%d]".formatted(materiaId));
         return nuevoCurso(docente, materiaId, seccion);

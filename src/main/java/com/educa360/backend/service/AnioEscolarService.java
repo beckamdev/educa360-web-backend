@@ -21,7 +21,7 @@ import java.util.List;
  *
  * Reglas:
  * - sólo un año ABIERTO a la vez;
- * - los años no se solapan;
+ * - la fecha de inicio debe pertenecer al año calendario;
  * - un año CERRADO es solo lectura;
  * - no se cierra un año con bimestres abiertos.
  */
@@ -40,17 +40,16 @@ public class AnioEscolarService {
     /** Alta: nace PLANIFICADO (editable). */
     @Transactional
     public AnioEscolarResponse crear(AnioEscolarRequest request) {
-        validarFechas(request.fechaInicio(), request.fechaFin());
+        validarInicioEnElAnio(request.anio(), request.fechaInicio());
         if (anioRepository.existsByAnio(request.anio())) {
             throw new ConflictException("Ya existe el año " + request.anio());
         }
         if (anioRepository.existsByNombre(request.nombre())) {
             throw new ConflictException("Ya existe un año con el nombre '" + request.nombre() + "'");
         }
-        validarSolape(request.anio(), request.fechaInicio(), request.fechaFin(), null);
 
         AnioEscolar anio = new AnioEscolar(
-                request.anio(), request.nombre(), request.fechaInicio(), request.fechaFin());
+                request.anio(), request.nombre(), request.fechaInicio());
         return AnioEscolarResponse.desde(anioRepository.save(anio));
     }
 
@@ -67,19 +66,17 @@ public class AnioEscolarService {
         if (anio.estaCerrado()) {
             throw new ConflictException("El año " + anio.getAnio() + " está CERRADO: es solo lectura");
         }
-        validarFechas(request.fechaInicio(), request.fechaFin());
+        validarInicioEnElAnio(request.anio(), request.fechaInicio());
         if (anioRepository.existsByAnioAndIdNot(request.anio(), id)) {
             throw new ConflictException("Ya existe el año " + request.anio());
         }
         if (anioRepository.existsByNombreAndIdNot(request.nombre(), id)) {
             throw new ConflictException("Ya existe un año con el nombre '" + request.nombre() + "'");
         }
-        validarSolape(request.anio(), request.fechaInicio(), request.fechaFin(), id);
 
         anio.setAnio(request.anio());
         anio.setNombre(request.nombre());
         anio.setFechaInicio(request.fechaInicio());
-        anio.setFechaFin(request.fechaFin());
         return AnioEscolarResponse.desde(anioRepository.save(anio));
     }
 
@@ -109,20 +106,10 @@ public class AnioEscolarService {
                 .orElseThrow(() -> new NotFoundException("El año " + id + " no existe"));
     }
 
-    private void validarFechas(LocalDate inicio, LocalDate fin) {
-        if (fin.isBefore(inicio)) {
-            throw new BadRequestException("La fecha de fin no puede ser anterior a la de inicio");
-        }
-    }
-
-    /** Los años no pueden solaparse entre sí. */
-    private void validarSolape(Integer anio, LocalDate inicio, LocalDate fin, Long idExcluido) {
-        boolean solapa = anioRepository.findAll().stream()
-                .filter(otro -> idExcluido == null || !otro.getId().equals(idExcluido))
-                .anyMatch(otro -> !fin.isBefore(otro.getFechaInicio())
-                        && !otro.getFechaFin().isBefore(inicio));
-        if (solapa) {
-            throw new ConflictException("El año " + anio + " se solapa con otro año escolar");
+    private void validarInicioEnElAnio(Integer anio, LocalDate inicio) {
+        if (inicio.getYear() != anio) {
+            throw new BadRequestException(
+                    "La fecha de inicio debe pertenecer al año " + anio);
         }
     }
 }

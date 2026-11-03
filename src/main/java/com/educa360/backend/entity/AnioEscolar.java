@@ -10,6 +10,9 @@ import java.time.LocalDate;
  * Reemplaza al antiguo {@code PeriodoAcademico}. Un año agrupa sus bimestres,
  * secciones y matrículas. Nace {@code PLANIFICADO} (editable) y se abre o
  * cierra de forma explícita por ADMIN.
+ *
+ * Solo guarda {@code fechaInicio} (primer día de clases). El cierre del año
+ * lo marcan sus bimestres: el último bimestre define el último día de clases.
  */
 @Entity
 @Table(name = "anios_escolares",
@@ -34,9 +37,6 @@ public class AnioEscolar extends Auditable {
     @Column(nullable = false)
     private LocalDate fechaInicio; // primer día de clases
 
-    @Column(nullable = false)
-    private LocalDate fechaFin; // último día de clases
-
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Estado estado;
@@ -47,12 +47,11 @@ public class AnioEscolar extends Auditable {
         this.estado = Estado.PLANIFICADO;
     }
 
-    public AnioEscolar(Integer anio, String nombre, LocalDate fechaInicio, LocalDate fechaFin) {
+    public AnioEscolar(Integer anio, String nombre, LocalDate fechaInicio) {
         this();
         this.anio = anio;
         this.nombre = nombre;
         this.fechaInicio = fechaInicio;
-        this.fechaFin = fechaFin;
     }
 
     // Helpers
@@ -91,14 +90,6 @@ public class AnioEscolar extends Auditable {
         this.fechaInicio = fechaInicio;
     }
 
-    public LocalDate getFechaFin() {
-        return fechaFin;
-    }
-
-    public void setFechaFin(LocalDate fechaFin) {
-        this.fechaFin = fechaFin;
-    }
-
     public Estado getEstado() {
         return estado;
     }
@@ -114,7 +105,6 @@ public class AnioEscolar extends Auditable {
                 ", anio=" + anio +
                 ", nombre='" + nombre + '\'' +
                 ", fechaInicio=" + fechaInicio +
-                ", fechaFin=" + fechaFin +
                 ", estado=" + estado +
                 '}';
     }

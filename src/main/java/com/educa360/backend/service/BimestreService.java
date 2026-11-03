@@ -102,9 +102,10 @@ public class BimestreService {
             throw new BadRequestException("La fecha de fin no puede ser anterior a la de inicio");
         }
         if (request.fechaInicio().isBefore(anio.getFechaInicio())
-                || request.fechaFin().isAfter(anio.getFechaFin())) {
+                || request.fechaInicio().getYear() != anio.getAnio()
+                || request.fechaFin().getYear() != anio.getAnio()) {
             throw new BadRequestException("El bimestre debe estar dentro del año "
-                    + anio.getAnio() + " (" + anio.getFechaInicio() + " a " + anio.getFechaFin() + ")");
+                    + anio.getAnio() + " (desde " + anio.getFechaInicio() + ")");
         }
         boolean numeroDuplicado = (idExcluido == null)
                 ? bimestreRepository.existsByAnioIdAndNumero(anio.getId(), request.numero())

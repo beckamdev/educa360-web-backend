@@ -153,7 +153,7 @@ public class AuthService {
                     .map(matricula -> MePerfilResponse.estudiante(
                             matricula.getSeccion().getEtiqueta(),
                             matricula.getSeccion().getAnio().getNombre(),
-                            matricula.getEstado()))
+                            matricula.getSituacionFinal()))
                     .orElse(null);
             case APODERADO -> apoderadoRepository.findByUser(user)
                     .map(apoderado -> MePerfilResponse.apoderado(

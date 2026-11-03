@@ -113,6 +113,9 @@ public class CursoService {
                 .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
         Estudiante estudiante = estudianteRepository.findByUser(user)
                 .orElseThrow(() -> new NotFoundException("El usuario no tiene perfil Estudiante"));
+        if (!estudiante.estaHabilitado()) {
+            return List.of(); // retirado/trasladado/egresado: ya no cursa
+        }
         return matriculaService.vigenteDe(estudiante.getId())
                 .map(matricula -> cursoRepository.findBySeccionId(matricula.getSeccion().getId()))
                 .orElse(List.of())

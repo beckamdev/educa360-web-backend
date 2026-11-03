@@ -18,9 +18,6 @@ public record AnioEscolarRequest(
         String nombre,
 
         @NotNull(message = "La fecha de inicio es obligatoria")
-        LocalDate fechaInicio,
-
-        @NotNull(message = "La fecha de fin es obligatoria")
-        LocalDate fechaFin
+        LocalDate fechaInicio
 ) {
 }

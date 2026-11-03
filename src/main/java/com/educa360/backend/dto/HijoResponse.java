@@ -17,7 +17,7 @@ public record HijoResponse(
         String email,
         String seccionEtiqueta, // del año ABIERTO; null si no está matriculado
         String anioNombre,
-        Matricula.Estado matriculaEstado,
+        Matricula.SituacionFinal situacionFinal,
         ApoderadoEstudiante.Parentesco parentesco,
         boolean responsablePrincipal
 ) {

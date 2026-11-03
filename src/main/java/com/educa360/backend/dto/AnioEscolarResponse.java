@@ -11,7 +11,6 @@ public record AnioEscolarResponse(
         Integer anio,
         String nombre,
         LocalDate fechaInicio,
-        LocalDate fechaFin,
         AnioEscolar.Estado estado,
         LocalDateTime createdAt
 ) {
@@ -21,7 +20,6 @@ public record AnioEscolarResponse(
                 anio.getAnio(),
                 anio.getNombre(),
                 anio.getFechaInicio(),
-                anio.getFechaFin(),
                 anio.getEstado(),
                 anio.getCreatedAt()
         );

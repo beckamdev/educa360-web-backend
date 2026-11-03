@@ -111,6 +111,7 @@ public class ApoderadoService {
     public List<HijoResponse> listarHijos(Long apoderadoId) {
         buscar(apoderadoId); // 404 si el perfil no existe
         return vinculoRepository.findByApoderadoIdAndActivoTrue(apoderadoId).stream()
+                .filter(vinculo -> vinculo.getEstudiante().estaHabilitado())
                 .map(this::aHijo)
                 .toList();
     }
@@ -166,7 +167,7 @@ public class ApoderadoService {
                 estudiante.getUser().getEmail(),
                 vigente.map(matricula -> matricula.getSeccion().getEtiqueta()).orElse(null),
                 vigente.map(matricula -> matricula.getSeccion().getAnio().getNombre()).orElse(null),
-                vigente.map(Matricula::getEstado).orElse(null),
+                vigente.map(Matricula::getSituacionFinal).orElse(null),
                 vinculo.getParentesco(),
                 vinculo.isResponsablePrincipal()
         );

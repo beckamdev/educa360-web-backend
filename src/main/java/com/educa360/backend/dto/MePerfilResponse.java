@@ -19,7 +19,7 @@ public record MePerfilResponse(
         List<MateriaResponse> materias,     // DOCENTE
         String seccionEtiqueta,             // ESTUDIANTE
         String anioNombre,                  // ESTUDIANTE
-        Matricula.Estado matriculaEstado,   // ESTUDIANTE
+        Matricula.SituacionFinal situacionFinal, // ESTUDIANTE
         List<HijoResponse> hijos            // APODERADO
 ) {
     public static MePerfilResponse docente(String titulo, List<MateriaResponse> materias) {
@@ -27,8 +27,8 @@ public record MePerfilResponse(
     }
 
     public static MePerfilResponse estudiante(String seccionEtiqueta, String anioNombre,
-                                              Matricula.Estado matriculaEstado) {
-        return new MePerfilResponse(null, null, seccionEtiqueta, anioNombre, matriculaEstado, null);
+                                              Matricula.SituacionFinal situacionFinal) {
+        return new MePerfilResponse(null, null, seccionEtiqueta, anioNombre, situacionFinal, null);
     }
 
     public static MePerfilResponse apoderado(List<HijoResponse> hijos) {

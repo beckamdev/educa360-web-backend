@@ -27,7 +27,8 @@ public record EstudianteResponse(
         boolean activo,
         String seccionEtiqueta,
         String anioNombre,
-        Matricula.Estado matriculaEstado,
+        LocalDate fechaMatricula,
+        Matricula.SituacionFinal situacionFinal,
         List<Vinculo> apoderados
 ) {
     /** Apoderado vinculado y su parentesco (sólo vínculos activos). */

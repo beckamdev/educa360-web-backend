@@ -33,7 +33,6 @@ import static org.mockito.Mockito.when;
 class BimestreServiceTest {
 
     private static final LocalDate INICIO_ANIO = LocalDate.of(2026, 3, 2);
-    private static final LocalDate FIN_ANIO = LocalDate.of(2026, 12, 18);
 
     @Mock
     private BimestreRepository bimestreRepository;
@@ -47,7 +46,7 @@ class BimestreServiceTest {
     @BeforeEach
     void setUp() {
         servicio = new BimestreService(bimestreRepository, anioService);
-        anio = new AnioEscolar(2026, "Año Escolar 2026", INICIO_ANIO, FIN_ANIO);
+        anio = new AnioEscolar(2026, "Año Escolar 2026", INICIO_ANIO);
         anio.setId(1L);
     }
 
@@ -73,6 +72,15 @@ class BimestreServiceTest {
 
         assertThrows(BadRequestException.class, () -> servicio.crear(1L,
                 new BimestreRequest(1, LocalDate.of(2026, 2, 1), LocalDate.of(2026, 4, 30))));
+    }
+
+    @Test
+    @DisplayName("El bimestre no puede terminar en otro año calendario")
+    void bimestreTerminaEnOtroAnio() {
+        when(anioService.buscar(1L)).thenReturn(anio);
+
+        assertThrows(BadRequestException.class, () -> servicio.crear(1L,
+                new BimestreRequest(4, LocalDate.of(2026, 11, 1), LocalDate.of(2027, 1, 31))));
     }
 
     @Test

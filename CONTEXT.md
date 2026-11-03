@@ -309,8 +309,7 @@ Relación: **1—N** `TicketJustificacion` como resolutor.
 |---|---|---|
 | `anio` | Integer | único (2026) |
 | `nombre` | String | único; ej. "Año Escolar 2026" |
-| `fechaInicio` | LocalDate | obligatoria; primer día de clases |
-| `fechaFin` | LocalDate | obligatoria; último día de clases, posterior a inicio |
+| `fechaInicio` | LocalDate | obligatoria; primer día de clases; debe pertenecer al año calendario |
 | `estado` | enum | `PLANIFICADO`, `ABIERTO`, `CERRADO` |
 
 Relaciones: **1—N** `Bimestre`, `Seccion`, `Matricula`.
@@ -320,7 +319,8 @@ Reglas:
 - `PLANIFICADO`: año futuro editable; se puede preparar estructura, pero no registrar asistencia ni notas.
 - `ABIERTO`: año vigente; permite matrícula, asistencia y calificaciones.
 - `CERRADO`: histórico; solo lectura.
-- No se solapa con otro año.
+- El número de año y el nombre son únicos; `fechaInicio` debe caer en el año calendario (`fechaInicio.getYear() == anio`).
+- El cierre del año lo definen sus bimestres: el último bimestre marca el último día de clases.
 - No se cierra con bimestres `ABIERTO`.
 - No se elimina si tiene secciones o matrículas.
 - `fechaInicio` marca el primer día de clases y es el corte para cambios de sección: antes de esa fecha se puede cambiar; desde esa fecha, no.
@@ -332,8 +332,8 @@ Reglas:
 | `anio_id` | FK → `AnioEscolar` | obligatoria |
 | `numero` | Integer | 1..4 |
 | `nombre` | String | derivado de `numero` ("Bimestre I") |
-| `fechaInicio` | LocalDate | obligatoria, dentro del año |
-| `fechaFin` | LocalDate | obligatoria, dentro del año, posterior a inicio |
+| `fechaInicio` | LocalDate | obligatoria; no antes de `AnioEscolar.fechaInicio` |
+| `fechaFin` | LocalDate | obligatoria; posterior a inicio y en el mismo año calendario |
 | `estado` | enum | `PLANIFICADO`, `ABIERTO`, `CERRADO` |
 
 Único `(anio_id, numero)`. Sin solape dentro del año.
@@ -416,7 +416,7 @@ Reglas:
 Relaciones: **N—1** `Estudiante`, `AnioEscolar`, `Seccion`; **1—N** `Asistencia`, `Calificacion`.
 
 Reglas:
-- Es el registro anual. No hay módulo de pagos, pensiones ni cuotas.
+- Es el registro académico anual del alumno. El nombre `Matricula` no representa una cuota ni un pago: en este sistema no hay módulo de pagos, pensiones ni cuotas.
 - Solo alumnos `ACTIVO` pueden matricularse.
 - La sección debe pertenecer al mismo año.
 - Nace `EN_CURSO`.
@@ -513,6 +513,7 @@ Reglas:
 - **Promedio de bimestre (por curso):** promedio simple de las unidades con notas.
 - **Promedio anual (por curso):** promedio simple de los bimestres con notas.
 - **Promedio general del alumno:** promedio simple de los promedios anuales de todos sus cursos. Se usa para reportes y boleta, no para decidir la aprobación.
+- **Semáforo (por curso y general):** 🟢 `≥ 16.00`; 🟡 `11.00 – 15.99`; 🔴 `< 11.00`. Es solo presentación: lo calcula el frontend a partir del promedio; la aprobación sigue siendo por curso.
 - **Aprobación de un curso:** promedio anual del curso ≥ `11.00`.
 - **Aprobación del grado:** todos los cursos deben estar aprobados y la asistencia global del alumno debe ser ≥ `70%`.
 - **Redondeo:** `HALF_UP` a 2 decimales.
