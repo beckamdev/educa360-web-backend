@@ -9,12 +9,14 @@ import com.educa360.backend.repository.CursoRepository;
 import com.educa360.backend.repository.DocenteRepository;
 import com.educa360.backend.repository.EstudianteRepository;
 import com.educa360.backend.repository.HorarioBloqueRepository;
+import com.educa360.backend.repository.MaterialClaseRepository;
 import com.educa360.backend.repository.MateriaRepository;
 import com.educa360.backend.repository.MatriculaRepository;
 import com.educa360.backend.repository.SeccionRepository;
 import com.educa360.backend.repository.SecretariaRepository;
 import com.educa360.backend.repository.TicketJustificacionRepository;
 import com.educa360.backend.repository.UserRepository;
+import com.educa360.backend.service.StorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,11 +24,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -40,7 +45,12 @@ import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -136,11 +146,18 @@ class JustificacionApiTest {
     @Autowired
     private TicketJustificacionRepository ticketRepository;
 
+    @Autowired
+    private MaterialClaseRepository materialClaseRepository;
+
+    @MockitoBean
+    private StorageService storageService;
+
     private String admin;
 
     @BeforeEach
     void empezarDeCero() throws Exception {
         // Orden de borrado por las FK: lo hijo primero
+        materialClaseRepository.deleteAll();
         asistenciaRepository.deleteAll();
         ticketRepository.deleteAll();
         matriculaRepository.deleteAll();
@@ -158,6 +175,8 @@ class JustificacionApiTest {
         userRepository.deleteAll();
 
         admin = registrarAdmin();
+        when(storageService.signedUrl(anyString(), anyString(), any()))
+                .thenReturn("https://signed.local/archivo");
     }
 
     @Test
@@ -177,8 +196,7 @@ class JustificacionApiTest {
 
         // El apoderado crea un ticket de día completo.
         MvcResult creado = crearTicket("lucia@educa360.pe", e.alumno(), """
-                {"fechaInasistencia":"%s","bloqueId":null,"motivo":"  Cita médica  ",
-                 "urlArchivoSustento":null}""".formatted(clase));
+                {"fechaInasistencia":"%s","bloqueId":null,"motivo":"  Cita médica  "}""".formatted(clase));
         assertEquals(201, creado.getResponse().getStatus(),
                 creado.getResponse().getContentAsString());
         long ticket = idDe(creado);
@@ -230,8 +248,7 @@ class JustificacionApiTest {
         assertEquals(409, resolverTicket(tokenSecretaria, ticket, "RECHAZADO", null)
                 .getResponse().getStatus());
         assertEquals(409, crearTicket("lucia@educa360.pe", e.alumno(), """
-                {"fechaInasistencia":"%s","bloqueId":null,"motivo":"Otra vez",
-                 "urlArchivoSustento":null}""".formatted(clase)).getResponse().getStatus());
+                {"fechaInasistencia":"%s","bloqueId":null,"motivo":"Otra vez"}""".formatted(clase)).getResponse().getStatus());
 
         // RBAC: cada rol en su zona; ADMIN no resuelve ni lee la bandeja.
         assertEquals(403, conToken(get("/api/v1/secretaria/tickets"), tokenAlma)
@@ -259,8 +276,7 @@ class JustificacionApiTest {
 
         // Se aprueba el ticket antes de que el docente registre la clase.
         long ticket = idDe(crearTicket("lucia@educa360.pe", beto, """
-                {"fechaInasistencia":"%s","bloqueId":%d,"motivo":"Cita médica",
-                 "urlArchivoSustento":"https://storage.local/sustento.pdf"}"""
+                {"fechaInasistencia":"%s","bloqueId":%d,"motivo":"Cita médica"}"""
                 .formatted(clase, e.bloque())));
         assertEquals(200, resolverTicket(tokenSecretaria, ticket, "APROBADO", null)
                 .getResponse().getStatus());
@@ -364,6 +380,104 @@ class JustificacionApiTest {
         assertNotNull(tokenMama);
     }
 
+    @Test
+    @DisplayName("M8: el material nace no publicado, se publica, descarga y da de baja")
+    void flujoDeMateriales() throws Exception {
+        LocalDate clase = clasePasada();
+        Escenario e = prepararEscenario(clase);
+        String tokenAlma = loginYToken("alma@educa360.pe", "Alumno1234");
+
+        MockMultipartFile archivo = new MockMultipartFile(
+                "archivo", "guia.pdf", "application/pdf", "%PDF-1.4".getBytes());
+        MvcResult creado = conToken(multipart(DOCENTE + "/cursos/" + e.curso() + "/materiales")
+                .file(archivo)
+                .param("titulo", "Guía de fracciones"), e.tokenDocente());
+        assertEquals(201, creado.getResponse().getStatus(),
+                creado.getResponse().getContentAsString());
+        long material = idDe(creado);
+        assertTrue(creado.getResponse().getContentAsString()
+                .contains("\"publicado\":false"), creado.getResponse().getContentAsString());
+
+        // El alumno no ve un material sin publicar.
+        String listaAlumno = conToken(get("/api/v1/estudiante/cursos/" + e.curso()
+                + "/materiales"), tokenAlma).getResponse().getContentAsString();
+        assertTrue(!listaAlumno.contains("\"id\":" + material), listaAlumno);
+
+        // ADMIN sí lo ve, incluso sin publicar.
+        String listaAdmin = conToken(get("/api/v1/admin/cursos/" + e.curso()
+                + "/materiales"), admin).getResponse().getContentAsString();
+        assertTrue(listaAdmin.contains("\"id\":" + material), listaAdmin);
+
+        assertEquals(200, conToken(patch(DOCENTE + "/materiales/" + material + "/publicacion")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"publicado\":true}"), e.tokenDocente())
+                .getResponse().getStatus());
+
+        listaAlumno = conToken(get("/api/v1/estudiante/cursos/" + e.curso()
+                + "/materiales"), tokenAlma).getResponse().getContentAsString();
+        assertTrue(listaAlumno.contains("\"id\":" + material), listaAlumno);
+        assertTrue(listaAlumno.contains("\"publicado\":true"), listaAlumno);
+
+        MvcResult descarga = conToken(get("/api/v1/materiales/" + material + "/download"),
+                tokenAlma);
+        assertEquals(200, descarga.getResponse().getStatus(),
+                descarga.getResponse().getContentAsString());
+        assertTrue(descarga.getResponse().getContentAsString()
+                .contains("https://signed.local/archivo"),
+                descarga.getResponse().getContentAsString());
+
+        assertEquals(204, conToken(delete(DOCENTE + "/materiales/" + material),
+                e.tokenDocente()).getResponse().getStatus());
+
+        listaAlumno = conToken(get("/api/v1/estudiante/cursos/" + e.curso()
+                + "/materiales"), tokenAlma).getResponse().getContentAsString();
+        assertTrue(!listaAlumno.contains("\"id\":" + material), listaAlumno);
+        assertEquals(404, conToken(get("/api/v1/materiales/" + material + "/download"),
+                tokenAlma).getResponse().getStatus());
+    }
+
+    @Test
+    @DisplayName("M8: el apoderado adjunta sustento y Secretaría lo descarga")
+    void flujoSustento() throws Exception {
+        LocalDate clase = clasePasada();
+        Escenario e = prepararEscenario(clase);
+        long mama = crearApoderado("lucia@educa360.pe", "40000001", "Lucia");
+        assertEquals(201, vincular(mama, e.alumno(), "MADRE", true));
+        crearSecretaria("sofia@educa360.pe", "21000001");
+        String tokenMama = loginYToken("lucia@educa360.pe", "Familia1234");
+        String tokenSecretaria = loginYToken("sofia@educa360.pe", "Secreta1234");
+
+        long ticket = idDe(crearTicket("lucia@educa360.pe", e.alumno(), """
+                {"fechaInasistencia":"%s","bloqueId":null,"motivo":"Cita médica"}"""
+                .formatted(clase)));
+
+        MockMultipartFile sustento = new MockMultipartFile(
+                "archivo", "certificado.pdf", "application/pdf", "%PDF-1.4".getBytes());
+        MvcResult subido = conToken(multipart("/api/v1/apoderado/tickets/" + ticket
+                + "/sustento").file(sustento), tokenMama);
+        assertEquals(200, subido.getResponse().getStatus(),
+                subido.getResponse().getContentAsString());
+        assertTrue(subido.getResponse().getContentAsString()
+                .contains("\"storagePath\":"), subido.getResponse().getContentAsString());
+
+        assertEquals(200, conToken(get("/api/v1/apoderado/tickets/" + ticket + "/sustento"),
+                tokenMama).getResponse().getStatus());
+        assertEquals(200, conToken(get("/api/v1/secretaria/tickets/" + ticket + "/sustento"),
+                tokenSecretaria).getResponse().getStatus());
+
+        // Un archivo no permitido no reemplaza el sustento.
+        MockMultipartFile exe = new MockMultipartFile(
+                "archivo", "virus.exe", "application/octet-stream", "MZ".getBytes());
+        assertEquals(400, conToken(multipart("/api/v1/apoderado/tickets/" + ticket
+                + "/sustento").file(exe), tokenMama).getResponse().getStatus());
+
+        // Resuelto el ticket, ya no se puede adjuntar otro sustento.
+        assertEquals(200, resolverTicket(tokenSecretaria, ticket, "APROBADO", null)
+                .getResponse().getStatus());
+        assertEquals(409, conToken(multipart("/api/v1/apoderado/tickets/" + ticket
+                + "/sustento").file(sustento), tokenMama).getResponse().getStatus());
+    }
+
     // ==================== Escenario ====================
 
     private record Escenario(long anio, long bimestre, long seccion, long docente,
@@ -424,6 +538,11 @@ class JustificacionApiTest {
     }
 
     private MvcResult conToken(MockHttpServletRequestBuilder peticion, String token)
+            throws Exception {
+        return mockMvc.perform(peticion.header("Authorization", "Bearer " + token)).andReturn();
+    }
+
+    private MvcResult conToken(MockMultipartHttpServletRequestBuilder peticion, String token)
             throws Exception {
         return mockMvc.perform(peticion.header("Authorization", "Bearer " + token)).andReturn();
     }

@@ -1,5 +1,6 @@
 package com.educa360.backend.controller;
 
+import com.educa360.backend.dto.ArchivoDescargaResponse;
 import com.educa360.backend.dto.TicketResolverRequest;
 import com.educa360.backend.dto.TicketResponse;
 import com.educa360.backend.entity.TicketJustificacion;
@@ -50,6 +51,14 @@ public class SecretariaTicketController {
     @GetMapping("/{id}")
     public ResponseEntity<TicketResponse> detalle(@PathVariable Long id) {
         return ResponseEntity.ok(justificacionService.detalle(id));
+    }
+
+    /** URL firmada del sustento adjunto, si existe. */
+    @GetMapping("/{id}/sustento")
+    public ResponseEntity<ArchivoDescargaResponse> sustento(
+            @PathVariable Long id, Authentication authentication) {
+        return ResponseEntity.ok(justificacionService.urlSustentoSecretaria(
+                authentication.getName(), id));
     }
 
     /** Aprueba o rechaza un ticket PENDIENTE. */

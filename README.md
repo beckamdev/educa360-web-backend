@@ -72,6 +72,13 @@ El archivo `.env` **no se versiona**.
 | `APP_SECURITY_LOGIN_MAX_ATTEMPTS` | No | Intentos fallidos antes del bloqueo (por defecto `5`) |
 | `APP_SECURITY_LOGIN_WINDOW_MINUTES` | No | Ventana de conteo en minutos (por defecto `15`) |
 | `APP_SECURITY_LOGIN_COOLDOWN_MINUTES` | No | Duración del bloqueo en minutos (por defecto `15`) |
+| `APP_SUPABASE_URL` | Para archivos | URL del proyecto Supabase (`https://<proyecto>.supabase.co`) |
+| `APP_SUPABASE_SERVICE_ROLE_KEY` | Para archivos | Service role key; **solo backend**, nunca en el frontend |
+
+Para materiales y sustentos, crea en Supabase los buckets **privados**
+`materiales` y `sustentos`. Sin `APP_SUPABASE_URL` y
+`APP_SUPABASE_SERVICE_ROLE_KEY`, esos endpoints responden `503`; el resto de la
+API funciona normal.
 
 Genera el secreto JWT con:
 

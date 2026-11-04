@@ -548,7 +548,7 @@ Reglas:
 | `fechaInasistencia` | LocalDate | obligatoria; no futura |
 | `bloque_id` | FK → `HorarioBloque` | opcional; si es `NULL`, aplica a todo el día |
 | `motivo` | String(500) | obligatorio; se guarda con `trim` |
-| `urlArchivoSustento` | String(500) | opcional; texto libre en M7. M8 lo reemplaza por `storagePath` (ruta privada en el bucket `sustentos`). |
+| `storagePath` | String(500) | opcional; ruta privada del archivo en el bucket `sustentos` (M8). Nunca se expone como URL pública. |
 | `estado` | enum | `PENDIENTE`, `APROBADO`, `RECHAZADO` |
 | `fechaResolucion` | LocalDateTime | la pone el servidor al resolver |
 | `resueltoPor_id` | FK → `Secretaria` | opcional hasta resolver |
@@ -565,12 +565,12 @@ Reglas:
 - No se permite más de un ticket `PENDIENTE` o `APROBADO` para el mismo alumno, fecha y bloque.
 - Tampoco se permite un ticket de día completo y otro de bloque para la misma fecha del mismo alumno: el alcance más amplio prevalece.
 - Un ticket `RECHAZADO` ya no bloquea uno nuevo.
-- El sustento es opcional. En M7 se acepta como texto libre; en M8 se sube como archivo al bucket privado `sustentos` y solo se puede adjuntar/reemplazar mientras el ticket está `PENDIENTE`.
+- El sustento es opcional. Se sube como archivo al bucket privado `sustentos` y solo se puede adjuntar/reemplazar mientras el ticket está `PENDIENTE`. Se descarga con URL firmada de 5 minutos.
 - No se elimina; los estados son la historia.
 
 #### 3.2.8. Materiales y comunicados
 
-##### `MaterialClase` 🆕 — tabla `materiales_clase`
+##### `MaterialClase` ✅ — tabla `materiales_clase`
 
 | Campo | Tipo | Regla |
 |---|---|---|
@@ -1243,12 +1243,11 @@ Cuerpo del `POST`:
 {
   "fechaInasistencia": "2026-03-09",
   "bloqueId": null,
-  "motivo": "Cita médica",
-  "urlArchivoSustento": null
+  "motivo": "Cita médica"
 }
 ```
 
-> En M8 este campo se reemplaza por `storagePath` y el archivo se sube con `POST /api/v1/apoderado/tickets/{id}/sustento`; el `POST` de creación deja de aceptar `urlArchivoSustento`.
+> El sustento no viaja en el alta: se sube aparte con `POST /api/v1/apoderado/tickets/{id}/sustento` (multipart). La respuesta del ticket expone `storagePath` (ruta privada), no una URL.
 
 Cuerpo del `PATCH .../resolver`:
 
@@ -1272,7 +1271,7 @@ Cuerpo del `PATCH .../resolver`:
 
 ---
 
-### Módulo 8 — Materiales y Storage 🆕
+### Módulo 8 — Materiales y Storage ✅
 
 **Objetivo:** publicar material didáctico y sustentos en Supabase Storage.
 
@@ -1287,7 +1286,7 @@ Cuerpo del `PATCH .../resolver`:
 - Material no publicado solo lo ve el docente y `ADMIN`.
 - Al crear, el material queda `publicado=false`; se publica con un `PATCH` explícito.
 - Validar MIME, extensión y tamaño; extensión y MIME deben coincidir.
-- Rutas: `materiales/{cursoId}/{uuid}-{nombreSeguro}` y `sustentos/{ticketId}/{uuid}-{nombreSeguro}`. El nombre se sanea y se recorta a 120 caracteres.
+- Rutas (sin el nombre del bucket, que va aparte): `{cursoId}/{uuid}-{nombreSeguro}` en `materiales` y `{ticketId}/{uuid}-{nombreSeguro}` en `sustentos`. El nombre se sanea y se recorta a 120 caracteres.
 - Materiales permitidos: PDF, DOC/DOCX, PPT/PPTX, XLS/XLSX, JPG/JPEG/PNG y MP4; máximo 25 MB.
 - Sustentos permitidos: PDF, JPG/JPEG/PNG; máximo 5 MB. El sustento es opcional y solo se adjunta/reemplaza mientras el ticket está `PENDIENTE`.
 - La baja de material es lógica (`activo=false`, `publicado=false`) y elimina el objeto del bucket en la misma operación; si Storage falla, el material queda inactivo y no accesible.
@@ -1682,7 +1681,7 @@ Reglas:
 
 - Buckets privados: `materiales` y `sustentos`.
 - El backend sube con service role y firma URLs de descarga de 5 minutos.
-- Rutas: `materiales/{cursoId}/{uuid}-{nombreSeguro}` y `sustentos/{ticketId}/{uuid}-{nombreSeguro}`.
+- Rutas: `{cursoId}/{uuid}-{nombreSeguro}` en el bucket `materiales` y `{ticketId}/{uuid}-{nombreSeguro}` en el bucket `sustentos`.
 - Se validan MIME, extensión y tamaño; extensión y MIME deben coincidir.
 - Materiales: máximo 25 MB (PDF, Office, imágenes y MP4). Sustentos: máximo 5 MB (PDF e imágenes).
 - La baja de material es lógica en BD y elimina el objeto del bucket; si Storage falla, el material queda inactivo e inaccesible.
@@ -1698,7 +1697,7 @@ Reglas:
 
 ## 11. Estado actual y roadmap
 
-### 11.1. Estado actual (tras M7)
+### 11.1. Estado actual (tras M8)
 
 | Módulo | Estado | Nota |
 |---|---|---|
@@ -1710,7 +1709,7 @@ Reglas:
 | M5 Asistencia | ✅ | Asistencia por bloque/fecha, tardanza y resúmenes |
 | M6 Calificaciones | ✅ | Notas por criterio, promedios y acta |
 | M7 Justificaciones | ✅ | Tickets de apoderado y resolución de Secretaría |
-| M8 Materiales y Storage | 🆕 | Siguiente módulo |
+| M8 Materiales y Storage | ✅ | Buckets privados, materiales y sustento de tickets |
 | M9 Comunicados | 🆕 | Pendiente |
 | M10 Cierre y reportes | 🆕 | Pendiente |
 | M11 Endurecimiento y Flyway | 🆕 | Pendiente |
@@ -1807,6 +1806,13 @@ Un módulo se considera terminado cuando:
 ---
 
 ## 13. Registro de cambios
+
+### v3.2 — 2026-11-04 (M8 implementado)
+
+- M8 Materiales y Storage queda ✅: entidad `MaterialClase`, buckets privados `materiales` y `sustentos`, URLs firmadas de 5 minutos y validación de archivos.
+- `TicketJustificacion.urlArchivoSustento` se reemplaza por `storagePath`; el sustento se sube aparte con multipart y solo mientras el ticket está `PENDIENTE`.
+- Se documentan las rutas reales sin prefijo de bucket (`{cursoId}/...`, `{ticketId}/...`) y los límites de 25 MB / 5 MB.
+- Se completan los guards de borrado: curso, unidad o contenido con materiales responden `409`.
 
 ### v3.1 — 2026-11-04 (auditoría tras M7)
 

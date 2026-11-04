@@ -1,5 +1,6 @@
 package com.educa360.backend.service;
 
+import com.educa360.backend.dto.ArchivoDescargaResponse;
 import com.educa360.backend.dto.TicketCreateRequest;
 import com.educa360.backend.dto.TicketResolverRequest;
 import com.educa360.backend.dto.TicketResponse;
@@ -29,11 +30,14 @@ import com.educa360.backend.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Justificaciones de inasistencia (Módulo 7).
@@ -59,6 +63,7 @@ public class JustificacionService {
     private static final List<TicketJustificacion.Estado> ACTIVOS =
             List.of(TicketJustificacion.Estado.PENDIENTE,
                     TicketJustificacion.Estado.APROBADO);
+    private static final Duration TTL_SUSTENTO = Duration.ofMinutes(5);
 
     private final TicketJustificacionRepository ticketRepository;
     private final AsistenciaRepository asistenciaRepository;
@@ -69,6 +74,8 @@ public class JustificacionService {
     private final SecretariaRepository secretariaRepository;
     private final AnioEscolarRepository anioRepository;
     private final UserRepository userRepository;
+    private final StorageService storageService;
+    private final ArchivoValidator archivoValidator;
     private final Clock clock;
 
     @Autowired
@@ -80,10 +87,12 @@ public class JustificacionService {
                                 HorarioBloqueRepository horarioRepository,
                                 SecretariaRepository secretariaRepository,
                                 AnioEscolarRepository anioRepository,
-                                UserRepository userRepository) {
+                                UserRepository userRepository,
+                                StorageService storageService,
+                                ArchivoValidator archivoValidator) {
         this(ticketRepository, asistenciaRepository, apoderadoRepository, vinculoRepository,
                 matriculaRepository, horarioRepository, secretariaRepository, anioRepository,
-                userRepository, Clock.systemDefaultZone());
+                userRepository, storageService, archivoValidator, Clock.systemDefaultZone());
     }
 
     /** Visible para tests: inyecta un reloj falso. */
@@ -96,6 +105,8 @@ public class JustificacionService {
                          SecretariaRepository secretariaRepository,
                          AnioEscolarRepository anioRepository,
                          UserRepository userRepository,
+                         StorageService storageService,
+                         ArchivoValidator archivoValidator,
                          Clock clock) {
         this.ticketRepository = ticketRepository;
         this.asistenciaRepository = asistenciaRepository;
@@ -106,6 +117,8 @@ public class JustificacionService {
         this.secretariaRepository = secretariaRepository;
         this.anioRepository = anioRepository;
         this.userRepository = userRepository;
+        this.storageService = storageService;
+        this.archivoValidator = archivoValidator;
         this.clock = clock;
     }
 
@@ -147,7 +160,6 @@ public class JustificacionService {
         }
 
         String motivo = textoObligatorio(datos.motivo(), "El motivo");
-        String url = textoOpcional(datos.urlArchivoSustento());
 
         Matricula matricula = matriculaDe(estudiante, fecha);
         if (matricula.estaRetirada()) {
@@ -171,8 +183,63 @@ public class JustificacionService {
         validarSinSolape(estudiante.getId(), fecha, bloque);
 
         TicketJustificacion ticket = new TicketJustificacion(
-                apoderado, estudiante, fecha, bloque, motivo, url);
+                apoderado, estudiante, fecha, bloque, motivo, null);
         return TicketResponse.desde(ticketRepository.save(ticket));
+    }
+
+    /**
+     * Adjunta o reemplaza el sustento de un ticket propio en PENDIENTE.
+     * El archivo va al bucket privado {@code sustentos}; en la BD sólo queda
+     * su ruta. Reemplazar elimina el objeto anterior.
+     */
+    @Transactional
+    public TicketResponse subirSustento(String email, Long ticketId, MultipartFile archivo) {
+        Apoderado apoderado = apoderadoDe(email);
+        TicketJustificacion ticket = buscar(ticketId);
+
+        if (!ticket.getApoderado().getId().equals(apoderado.getId())) {
+            throw new NotFoundException("El ticket " + ticketId + " no existe");
+        }
+        if (!ticket.estaPendiente()) {
+            throw new ConflictException("El ticket " + ticketId + " ya está "
+                    + ticket.getEstado() + ": no se puede adjuntar sustento");
+        }
+
+        ArchivoValidator.ArchivoValidado validado =
+                archivoValidator.validarSustento(archivo);
+        String path = rutaSustento(ticket.getId(), validado.nombreSeguro());
+        storageService.upload(StorageService.BUCKET_SUSTENTOS, path,
+                validado.contenido(), validado.mimeType());
+
+        String anterior = ticket.getStoragePath();
+        ticket.setStoragePath(path);
+        try {
+            TicketResponse respuesta =
+                    TicketResponse.desde(ticketRepository.saveAndFlush(ticket));
+            if (anterior != null && !anterior.equals(path)) {
+                storageService.delete(StorageService.BUCKET_SUSTENTOS, anterior);
+            }
+            return respuesta;
+        } catch (RuntimeException ex) {
+            storageService.delete(StorageService.BUCKET_SUSTENTOS, path);
+            throw ex;
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public ArchivoDescargaResponse urlSustentoApoderado(String email, Long ticketId) {
+        Apoderado apoderado = apoderadoDe(email);
+        TicketJustificacion ticket = buscar(ticketId);
+        if (!ticket.getApoderado().getId().equals(apoderado.getId())) {
+            throw new NotFoundException("El ticket " + ticketId + " no existe");
+        }
+        return firmarSustento(ticket);
+    }
+
+    @Transactional(readOnly = true)
+    public ArchivoDescargaResponse urlSustentoSecretaria(String email, Long ticketId) {
+        secretariaDe(email);
+        return firmarSustento(buscar(ticketId));
     }
 
     // ==================== Secretaría ====================
@@ -254,6 +321,20 @@ public class JustificacionService {
     }
 
     // ==================== Helpers ====================
+
+    private ArchivoDescargaResponse firmarSustento(TicketJustificacion ticket) {
+        if (!ticket.tieneSustento()) {
+            throw new NotFoundException("El ticket " + ticket.getId()
+                    + " no tiene archivo de sustento");
+        }
+        String url = storageService.signedUrl(StorageService.BUCKET_SUSTENTOS,
+                ticket.getStoragePath(), TTL_SUSTENTO);
+        return new ArchivoDescargaResponse(url, LocalDateTime.now(clock).plus(TTL_SUSTENTO));
+    }
+
+    private String rutaSustento(Long ticketId, String nombreSeguro) {
+        return ticketId + "/" + UUID.randomUUID() + "-" + nombreSeguro;
+    }
 
     private TicketJustificacion buscar(Long id) {
         return ticketRepository.findById(id)

@@ -95,6 +95,12 @@ class JustificacionServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private StorageService storageService;
+
+    @Mock
+    private ArchivoValidator archivoValidator;
+
     private User userApoderado;
     private Apoderado apoderado;
     private User userAlumno;
@@ -130,6 +136,7 @@ class JustificacionServiceTest {
         servicio = new JustificacionService(ticketRepository, asistenciaRepository,
                 apoderadoRepository, vinculoRepository, matriculaRepository, horarioRepository,
                 secretariaRepository, anioRepository, userRepository,
+                storageService, archivoValidator,
                 Clock.fixed(Instant.parse("2026-03-10T10:00:00Z"), ZONA));
     }
 
@@ -145,11 +152,11 @@ class JustificacionServiceTest {
                 .thenAnswer(inv -> inv.getArgument(0));
 
         TicketResponse respuesta = servicio.crear("lucia@educa360.pe", 60L,
-                new TicketCreateRequest(FECHA, null, "  Cita médica  ", "  "));
+                new TicketCreateRequest(FECHA, null, "  Cita médica  "));
 
         assertEquals(TicketJustificacion.Estado.PENDIENTE, respuesta.estado());
         assertEquals("Cita médica", respuesta.motivo());
-        assertNull(respuesta.urlArchivoSustento());
+        assertNull(respuesta.storagePath());
         assertNull(respuesta.bloqueId());
         assertEquals(apoderado.getId(), respuesta.apoderadoId());
         assertEquals(estudiante.getId(), respuesta.estudianteId());
@@ -162,7 +169,7 @@ class JustificacionServiceTest {
 
         assertThrows(BadRequestException.class, () -> servicio.crear(
                 "lucia@educa360.pe", 60L,
-                new TicketCreateRequest(FUTURA, null, "Cita médica", null)));
+                new TicketCreateRequest(FUTURA, null, "Cita médica")));
     }
 
     @Test
@@ -176,7 +183,7 @@ class JustificacionServiceTest {
 
         assertThrows(NotFoundException.class, () -> servicio.crear(
                 "lucia@educa360.pe", 60L,
-                new TicketCreateRequest(FECHA, null, "Cita médica", null)));
+                new TicketCreateRequest(FECHA, null, "Cita médica")));
     }
 
     @Test
@@ -190,7 +197,7 @@ class JustificacionServiceTest {
 
         assertThrows(NotFoundException.class, () -> servicio.crear(
                 "lucia@educa360.pe", 60L,
-                new TicketCreateRequest(FECHA, 51L, "Cita médica", null)));
+                new TicketCreateRequest(FECHA, 51L, "Cita médica")));
     }
 
     @Test
@@ -201,7 +208,7 @@ class JustificacionServiceTest {
 
         assertThrows(BadRequestException.class, () -> servicio.crear(
                 "lucia@educa360.pe", 60L,
-                new TicketCreateRequest(FECHA.plusDays(1), 50L, "Cita médica", null)));
+                new TicketCreateRequest(FECHA.plusDays(1), 50L, "Cita médica")));
     }
 
     @Test
@@ -218,7 +225,7 @@ class JustificacionServiceTest {
 
         assertThrows(ConflictException.class, () -> servicio.crear(
                 "lucia@educa360.pe", 60L,
-                new TicketCreateRequest(FECHA, 50L, "Cita médica", null)));
+                new TicketCreateRequest(FECHA, 50L, "Cita médica")));
     }
 
     @Test
@@ -237,7 +244,7 @@ class JustificacionServiceTest {
                 .thenAnswer(inv -> inv.getArgument(0));
 
         TicketResponse respuesta = servicio.crear("lucia@educa360.pe", 60L,
-                new TicketCreateRequest(FECHA, 51L, "Cita médica", null));
+                new TicketCreateRequest(FECHA, 51L, "Cita médica"));
 
         assertEquals(51L, respuesta.bloqueId());
         assertEquals(TicketJustificacion.Estado.PENDIENTE, respuesta.estado());

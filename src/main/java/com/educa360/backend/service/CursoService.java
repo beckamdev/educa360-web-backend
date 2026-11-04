@@ -20,6 +20,7 @@ import com.educa360.backend.repository.CursoRepository;
 import com.educa360.backend.repository.DocenteRepository;
 import com.educa360.backend.repository.EstudianteRepository;
 import com.educa360.backend.repository.HorarioBloqueRepository;
+import com.educa360.backend.repository.MaterialClaseRepository;
 import com.educa360.backend.repository.UnidadRepository;
 import com.educa360.backend.repository.UserRepository;
 import org.springframework.stereotype.Service;
@@ -50,6 +51,7 @@ public class CursoService {
     private final UnidadRepository unidadRepository;
     private final AsistenciaRepository asistenciaRepository;
     private final CalificacionRepository calificacionRepository;
+    private final MaterialClaseRepository materialClaseRepository;
     private final MateriaService materiaService;
     private final SeccionService seccionService;
     private final MatriculaService matriculaService;
@@ -62,6 +64,7 @@ public class CursoService {
                         UnidadRepository unidadRepository,
                         AsistenciaRepository asistenciaRepository,
                         CalificacionRepository calificacionRepository,
+                        MaterialClaseRepository materialClaseRepository,
                         MateriaService materiaService,
                         SeccionService seccionService,
                         MatriculaService matriculaService) {
@@ -73,6 +76,7 @@ public class CursoService {
         this.unidadRepository = unidadRepository;
         this.asistenciaRepository = asistenciaRepository;
         this.calificacionRepository = calificacionRepository;
+        this.materialClaseRepository = materialClaseRepository;
         this.materiaService = materiaService;
         this.seccionService = seccionService;
         this.matriculaService = matriculaService;
@@ -178,7 +182,10 @@ public class CursoService {
             throw new ConflictException("El curso ya tiene asistencias: "
                     + "no se puede eliminar");
         }
-        // TODO M8: bloquear con 409 si el curso ya tiene materiales.
+        if (materialClaseRepository.existsByCursoIdAndActivoTrue(curso.getId())) {
+            throw new ConflictException("El curso ya tiene materiales: "
+                    + "no se puede eliminar");
+        }
         horarioRepository.deleteByCurso(curso); // primero los bloques: tienen FK al curso
         cursoRepository.delete(curso);
     }

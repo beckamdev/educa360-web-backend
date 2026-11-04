@@ -53,7 +53,7 @@ public class TicketJustificacion extends Auditable {
     private String motivo;
 
     @Column(length = 500)
-    private String urlArchivoSustento;
+    private String storagePath;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -76,14 +76,14 @@ public class TicketJustificacion extends Auditable {
 
     public TicketJustificacion(Apoderado apoderado, Estudiante estudiante,
                                LocalDate fechaInasistencia, HorarioBloque bloque,
-                               String motivo, String urlArchivoSustento) {
+                               String motivo, String storagePath) {
         this();
         this.apoderado = apoderado;
         this.estudiante = estudiante;
         this.fechaInasistencia = fechaInasistencia;
         this.bloque = bloque;
         this.motivo = motivo;
-        this.urlArchivoSustento = urlArchivoSustento;
+        this.storagePath = storagePath;
     }
 
     // Helpers
@@ -94,6 +94,10 @@ public class TicketJustificacion extends Auditable {
 
     public boolean estaAprobado() {
         return estado == Estado.APROBADO;
+    }
+
+    public boolean tieneSustento() {
+        return storagePath != null && !storagePath.isBlank();
     }
 
     /** ¿El ticket cubre el bloque indicado? Sin bloque, cubre todo el día. */
@@ -143,12 +147,12 @@ public class TicketJustificacion extends Auditable {
         this.motivo = motivo;
     }
 
-    public String getUrlArchivoSustento() {
-        return urlArchivoSustento;
+    public String getStoragePath() {
+        return storagePath;
     }
 
-    public void setUrlArchivoSustento(String urlArchivoSustento) {
-        this.urlArchivoSustento = urlArchivoSustento;
+    public void setStoragePath(String storagePath) {
+        this.storagePath = storagePath;
     }
 
     public Estado getEstado() {

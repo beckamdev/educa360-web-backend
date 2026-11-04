@@ -29,6 +29,7 @@ import com.educa360.backend.repository.ContenidoRepository;
 import com.educa360.backend.repository.CursoRepository;
 import com.educa360.backend.repository.DocenteRepository;
 import com.educa360.backend.repository.EstudianteRepository;
+import com.educa360.backend.repository.MaterialClaseRepository;
 import com.educa360.backend.repository.UnidadRepository;
 import com.educa360.backend.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -78,6 +79,9 @@ class PlanificacionServiceTest {
     private CalificacionRepository calificacionRepository;
 
     @Mock
+    private MaterialClaseRepository materialClaseRepository;
+
+    @Mock
     private DocenteRepository docenteRepository;
 
     @Mock
@@ -101,7 +105,7 @@ class PlanificacionServiceTest {
     void setUp() {
         servicio = new PlanificacionService(unidadRepository, contenidoRepository,
                 cursoRepository, bimestreRepository, calificacionRepository,
-                docenteRepository, userRepository, estudianteRepository,
+                materialClaseRepository, docenteRepository, userRepository, estudianteRepository,
                 matriculaService, apoderadoRepository, vinculoRepository);
     }
 

@@ -23,6 +23,9 @@ services:
       APP_SECURITY_LOGIN_MAX_ATTEMPTS: ${APP_SECURITY_LOGIN_MAX_ATTEMPTS:-5}
       APP_SECURITY_LOGIN_WINDOW_MINUTES: ${APP_SECURITY_LOGIN_WINDOW_MINUTES:-15}
       APP_SECURITY_LOGIN_COOLDOWN_MINUTES: ${APP_SECURITY_LOGIN_COOLDOWN_MINUTES:-15}
+      # Supabase Storage: sin estas variables los endpoints de archivos dan 503.
+      APP_SUPABASE_URL: ${APP_SUPABASE_URL:-}
+      APP_SUPABASE_SERVICE_ROLE_KEY: ${APP_SUPABASE_SERVICE_ROLE_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

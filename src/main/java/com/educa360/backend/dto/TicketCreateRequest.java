@@ -21,9 +21,6 @@ public record TicketCreateRequest(
 
         @NotBlank(message = "El motivo es obligatorio")
         @Size(max = 500, message = "El motivo no puede superar los 500 caracteres")
-        String motivo,
-
-        @Size(max = 500, message = "La URL del sustento no puede superar los 500 caracteres")
-        String urlArchivoSustento
+        String motivo
 ) {
 }
