@@ -24,4 +24,7 @@ public interface MatriculaRepository extends JpaRepository<Matricula, Long> {
 
     /** Matrículas de una sección concreta. */
     List<Matricula> findBySeccionId(Long seccionId);
+
+    /** Historial completo del alumno (todas sus matrículas). */
+    List<Matricula> findByEstudianteId(Long estudianteId);
 }

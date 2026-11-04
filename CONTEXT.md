@@ -1377,7 +1377,7 @@ Cuerpo del `PATCH .../resolver`:
 
 ---
 
-### Módulo 10 — Cierre y reportes 🆕
+### Módulo 10 — Cierre y reportes ✅
 
 **Objetivo:** cerrar el año, fijar `situacionFinal` y emitir boletas/actas.
 
@@ -1391,9 +1391,15 @@ Cuerpo del `PATCH .../resolver`:
   - `RETIRADO` si el alumno se retiró.
 - Un curso desaprobado impide `APROBADO` aunque el promedio general sea mayor o igual a `11.00`.
 - Al aprobar 5° grado, `Estudiante.estado=EGRESADO`.
-- El cierre es idempotente: repetirlo no duplica efectos.
-- Las boletas se calculan, no se guardan.
-- Si falta la información de notas de algún curso, el cierre se bloquea y requiere revisión de `ADMIN`.
+- El cierre es idempotente: si el año ya está `CERRADO`, el `POST` devuelve el preview sin volver a aplicar efectos.
+- Las boletas, el historial y los reportes se calculan, no se guardan.
+- Los cálculos usan solo notas de unidades `PUBLICADA`, igual que la vista del alumno.
+- Si falta el promedio anual de algún curso de un alumno no retirado, el cierre se bloquea y requiere revisión de `ADMIN`.
+- Un alumno `RETIRADO` conserva `RETIRADO` y no bloquea el cierre por notas.
+- La asistencia global sin registros es `0.00%` y por tanto `DESAPROBADO`.
+- Los reportes exigen `anioId`; `bimestreId` y `seccionId` son opcionales y deben pertenecer al año (`409`).
+- La boleta sin `anioId` usa la matrícula del año `ABIERTO`; con el año cerrado debe enviarse `anioId`.
+- El historial de Secretaría también admite `ADMIN` (`hasAnyRole('ADMIN','SECRETARIA')`).
 
 **Endpoints:**
 
@@ -1403,7 +1409,7 @@ Cuerpo del `PATCH .../resolver`:
 | `POST /api/v1/admin/anios/{id}/cerrar` | ADMIN | Cierre del año |
 | `GET /api/v1/estudiante/boleta?anioId=` | ESTUDIANTE | Boleta propia |
 | `GET /api/v1/apoderado/hijos/{id}/boleta?anioId=` | APODERADO | Boleta del hijo |
-| `GET /api/v1/secretaria/estudiantes/{id}/historial` | SECRETARIA | Historial |
+| `GET /api/v1/secretaria/estudiantes/{id}/historial` | SECRETARIA / ADMIN | Historial |
 | `GET /api/v1/admin/reportes/asistencia?anioId=&bimestreId=&seccionId=` | ADMIN | Reporte |
 | `GET /api/v1/admin/reportes/calificaciones?anioId=&bimestreId=&seccionId=` | ADMIN | Reporte |
 
@@ -1411,8 +1417,11 @@ Cuerpo del `PATCH .../resolver`:
 - No se cierra un año con bimestres abiertos.
 - El preview coincide con el cierre.
 - Un curso con promedio anual < `11.00` impide `APROBADO` aunque el promedio general sea mayor.
-- Un alumno retirado no aparece como aprobado.
+- Un alumno retirado no aparece como aprobado y conserva `RETIRADO`.
+- Un alumno sin registros de asistencia queda `DESAPROBADO`.
+- Repetir el cierre de un año `CERRADO` responde `200` sin duplicar efectos.
 - La boleta de un apoderado solo incluye hijos activos.
+- Un reporte con `anioId` ausente responde `400`; con bimestre o sección de otro año, `409`.
 
 ---
 
@@ -1506,7 +1515,7 @@ Incluye:
 1. `ADMIN` cierra el bimestre.
 2. Se bloquean nuevas notas y asistencias de ese bimestre.
 3. Si no es el IV bimestre, se abre el siguiente.
-4. Al cerrar el IV bimestre, se cierra el año.
+4. Con todos los bimestres cerrados, `ADMIN` ejecuta `POST /admin/anios/{id}/cerrar` (acción manual, no automática).
 5. Se calcula `situacionFinal` de cada matrícula: `APROBADO` solo si todos los cursos están aprobados y la asistencia global es ≥ `70%`.
 6. Se marca `EGRESADO` a los alumnos de 5° aprobados.
 7. El año queda `CERRADO` y solo lectura.
@@ -1706,7 +1715,7 @@ Reglas:
 
 ## 11. Estado actual y roadmap
 
-### 11.1. Estado actual (tras M9)
+### 11.1. Estado actual (tras M10)
 
 | Módulo | Estado | Nota |
 |---|---|---|
@@ -1720,7 +1729,7 @@ Reglas:
 | M7 Justificaciones | ✅ | Tickets de apoderado y resolución de Secretaría |
 | M8 Materiales y Storage | ✅ | Buckets privados, materiales y sustento de tickets |
 | M9 Comunicados | ✅ | Generales y por sección, autoría, visibilidad y baja lógica |
-| M10 Cierre y reportes | 🆕 | Pendiente |
+| M10 Cierre y reportes | ✅ | Cierre anual, boletas, historial y reportes |
 | M11 Endurecimiento y Flyway | 🆕 | Pendiente |
 
 ### 11.2. Orden de implementación
@@ -1794,6 +1803,7 @@ Un módulo se considera terminado cuando:
 | 36 | M8: el material nace `publicado=false` y se publica con `PATCH`; `ADMIN` lee todo, incluidos borradores, sin modificar. La descarga usa URL firmada de 5 minutos. La baja es lógica y elimina el objeto del bucket. |
 | 37 | M8: el sustento se sube/reemplaza solo con el ticket `PENDIENTE`; el archivo vive en el bucket privado `sustentos` y se descarga con URL firmada. |
 | 38 | M9: `ADMIN` gestiona cualquier comunicado; `SECRETARIA` y `DOCENTE` solo los propios. `SECRETARIA` publica solo generales; `DOCENTE` solo en secciones donde dicta clase o es tutor. Contenido máximo 5000 caracteres; año `CERRADO` es solo lectura (`409`); baja lógica (`activo=false`). |
+| 39 | M10: el cierre exige al menos un bimestre y todos `CERRADO`; solo cuentan notas de unidades `PUBLICADA`. `APROBADO` exige todos los cursos con promedio anual ≥ `11.00` y asistencia global ≥ `70%`; sin registros de asistencia el porcentaje es `0.00%`. `RETIRADO` se conserva y no bloquea. Al aprobar 5° grado, el alumno pasa a `EGRESADO`. El cierre es idempotente y los reportes validan que bimestre y sección pertenezcan al año. |
 
 ### 12.2. Supuestos operativos
 
@@ -1816,6 +1826,16 @@ Un módulo se considera terminado cuando:
 ---
 
 ## 13. Registro de cambios
+
+### v3.4 — 2026-11-04 (M10 implementado)
+
+- M10 Cierre y reportes queda ✅: `CierreService` calcula el cierre anual, las boletas, el historial y los reportes.
+- El cierre exige todos los bimestres `CERRADO` y bloquea si a un alumno activo le falta el promedio anual de algún curso.
+- `APROBADO` exige todos los cursos ≥ `11.00` y asistencia global ≥ `70%`; un curso desaprobado o asistencia baja deja `DESAPROBADO`.
+- Los cálculos usan solo unidades `PUBLICADA`; `RETIRADO` se conserva y no bloquea; aprobar 5° deja `EGRESADO`.
+- Se agregan `GET .../cierre/preview`, `POST .../cerrar`, boleta de alumno/apoderado, historial de Secretaría y reportes de asistencia/calificaciones.
+- El cierre es idempotente; los reportes exigen `anioId` y validan bimestre/sección (`409`).
+- Tests: `CierreServiceTest` (15) y `CierreApiTest` (3); suite total 252.
 
 ### v3.3 — 2026-11-04 (M9 implementado)
 
