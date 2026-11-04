@@ -9,7 +9,7 @@ import java.time.LocalTime;
  *
  * Un curso se ve VARIAS veces por semana, por eso el horario es 1:N respecto
  * al Curso y no un par de campos dentro de él. Cada fila es una sesión que se
- * repite cada semana: la asistencia (futuro módulo) colgará de (bloque, fecha).
+ * repite cada semana: la asistencia cuelga de (bloque, fecha).
  *
  * REGLAS (en CursoService.reemplazarHorario → 409):
  * - sin solapes con otro curso de la MISMA sección el mismo día

@@ -505,18 +505,20 @@ Reglas:
 |---|---|---|
 | `matricula_id` | FK → `Matricula` | obligatoria |
 | `unidad_id` | FK → `Unidad` | obligatoria |
-| `criterio` | String | obligatorio; ej. "Examen parcial", "Práctica 1" |
-| `nota` | BigDecimal(4,2) | `0.00` a `20.00` |
+| `criterio` | String(120) | obligatorio; se guarda con `trim`; ej. "Examen parcial", "Práctica 1" |
+| `nota` | BigDecimal(4,2) | `0.00` a `20.00`; máximo dos decimales |
 | `registradoPor_id` | FK → `Docente` | opcional |
 
-Único `(matricula_id, unidad_id, criterio)`.
+Único `(matricula_id, unidad_id, criterio)` y `check (nota >= 0 and nota <= 20)`.
 Reglas:
 - La sección de la matrícula debe ser la sección del curso de la unidad.
-- Solo el docente del curso califica.
-- El bimestre de la unidad debe estar `ABIERTO` para registrar o modificar notas.
-- Escala vigesimal estricta, dos decimales.
+- Solo el docente dueño del curso califica; una unidad o curso ajeno responde `404`.
+- El bimestre de la unidad debe estar `ABIERTO` y el año no `CERRADO`.
+- Escala vigesimal estricta, dos decimales; más de dos decimales responde `400`.
+- El alta y la corrección son un upsert parcial por `(matrícula, criterio)`.
+- El alumno y el apoderado sólo ven notas de unidades `PUBLICADA`; docente, secretaría y admin ven también los borradores.
+- La baja es física y sólo se permite con el bimestre `ABIERTO`.
 - `createdAt` de `Auditable` es la fecha de registro; no se duplica en un campo aparte.
-- No se elimina; se corrige con auditoría.
 
 ##### Cálculo de promedios
 
@@ -524,6 +526,7 @@ Reglas:
 - **Promedio de bimestre (por curso):** promedio simple de las unidades con notas.
 - **Promedio anual (por curso):** promedio simple de los bimestres con notas.
 - **Promedio general del alumno:** promedio simple de los promedios anuales de todos sus cursos. Se usa para reportes y boleta, no para decidir la aprobación.
+- **Sin notas:** una unidad, bimestre o curso sin notas no entra en el promedio; si no hay ninguna nota, el promedio es `null`.
 - **Semáforo (por curso y general):** 🟢 `≥ 16.00`; 🟡 `11.00 – 15.99`; 🔴 `< 11.00`. Es solo presentación: lo calcula el frontend a partir del promedio; la aprobación sigue siendo por curso.
 - **Aprobación de un curso:** promedio anual del curso ≥ `11.00`.
 - **Aprobación del grado:** todos los cursos deben estar aprobados y la asistencia global del alumno debe ser ≥ `70%`.
@@ -742,7 +745,7 @@ EGRESADO   → (terminal)
 | `Unidad` | No se borra si tiene calificaciones o contenidos con materiales; si no, sus contenidos se eliminan en cascada. |
 | `Contenido` | Se borra solo si no tiene materiales; si tiene, se desvinculan o se bloquea. |
 | `Asistencia` | No se borra; se corrige con auditoría. |
-| `Calificacion` | No se borra; se corrige con auditoría. |
+| `Calificacion` | Baja física sólo con el bimestre `ABIERTO`; en `CERRADO` se corrige, no se borra. |
 | `TicketJustificacion` | No se borra; estados. |
 | `MaterialClase` | Baja lógica (`activo=false`) y limpieza diferida en Storage. |
 | `Comunicado` | Baja lógica (`activo=false`). |
@@ -1130,34 +1133,63 @@ Solo `FALTA` es inasistencia injustificada. El mínimo para aprobar es `70%`. Si
 
 **Reglas:**
 - La calificación se identifica por `(matricula_id, unidad_id, criterio)`.
-- El `criterio` es texto libre: "Examen parcial", "Práctica 1", "Tarea 2".
-- Solo el docente del curso crea y edita notas.
-- La matrícula debe pertenecer a la sección del curso de la unidad.
-- El bimestre debe estar `ABIERTO` para registrar o modificar notas.
-- Nota entre `0.00` y `20.00`, dos decimales.
-- Promedios simples por unidad, bimestre y año.
-- Nota aprobatoria `11.00` y asistencia mínima `70%`.
+- El `criterio` es texto libre de hasta 120 caracteres: "Examen parcial", "Práctica 1", "Tarea 2". Se guarda con `trim`.
+- Solo el docente dueño del curso registra, corrige o elimina; una unidad o curso ajeno responde `404`.
+- La matrícula debe pertenecer a la sección del curso de la unidad y no estar retirada.
+- El bimestre de la unidad debe estar `ABIERTO` y el año no `CERRADO`; si no, `409`.
+- La nota es vigesimal estricta, entre `0.00` y `20.00`, con máximo dos decimales; fuera de rango o con más decimales responde `400`.
+- El `PUT` es un **upsert parcial** por `(matrícula, criterio)`: solo viajan las notas que se registran o corrigen; las demás no se tocan.
+- La unidad puede estar en `BORRADOR` o `PUBLICADA` para calificar. El alumno y el apoderado sólo ven notas de unidades `PUBLICADA`; docente, secretaría y admin ven también los borradores.
+- La baja es **física** y sólo se permite con el bimestre `ABIERTO`.
 - No hay entidad `Evaluacion`: el criterio vive en la calificación.
+- Los promedios se calculan por consulta; no se guardan snapshots.
+- Con notas registradas, no se despublica ni elimina la unidad (`409`), no se elimina el curso (`409`) y no se cambia de sección la matrícula (`409`).
+
+**Promedios:**
+- Unidad: media simple de sus notas.
+- Bimestre (por curso): media simple de las unidades con notas.
+- Anual (por curso): media simple de los bimestres con notas.
+- General: media simple de los promedios anuales de los cursos con notas.
+- Redondeo `HALF_UP` a 2 decimales; sin notas, el promedio es `null`.
+- Aprobación del curso: anual `≥ 11.00`. Aprobación del grado: todos los cursos aprobados y asistencia global `≥ 70%`.
 
 **Endpoints:**
 
 | Método y ruta | Rol | Descripción |
 |---|---|---|
-| `GET /api/v1/docente/unidades/{id}/calificaciones` | DOCENTE | Notas de la unidad |
-| `PUT /api/v1/docente/unidades/{id}/calificaciones` | DOCENTE | Notas bulk por criterio |
-| `DELETE /api/v1/docente/calificaciones/{id}` | DOCENTE | Baja con auditoría |
-| `GET /api/v1/docente/cursos/{id}/actas?bimestreId=` | DOCENTE | Acta del curso |
-| `GET /api/v1/estudiante/calificaciones?anioId=&bimestreId=` | ESTUDIANTE | Propias |
-| `GET /api/v1/apoderado/hijos/{id}/calificaciones` | APODERADO | Del hijo |
-| `GET /api/v1/secretaria/estudiantes/{id}/calificaciones` | SECRETARIA | Del alumno |
+| `GET /api/v1/docente/unidades/{id}/calificaciones` | DOCENTE | Hoja de la unidad: todos los alumnos activos |
+| `PUT /api/v1/docente/unidades/{id}/calificaciones` | DOCENTE | Upsert parcial por (matrícula, criterio) |
+| `DELETE /api/v1/docente/calificaciones/{id}` | DOCENTE | Baja física en bimestre `ABIERTO` |
+| `GET /api/v1/docente/cursos/{id}/actas?bimestreId=` | DOCENTE | Acta: alumno × unidades + promedio |
+| `GET /api/v1/estudiante/calificaciones?anioId=&bimestreId=` | ESTUDIANTE | Propias + promedios |
+| `GET /api/v1/apoderado/hijos/{id}/calificaciones?anioId=&bimestreId=` | APODERADO | Del hijo + promedios |
+| `GET /api/v1/secretaria/estudiantes/{id}/calificaciones?anioId=&bimestreId=` | SECRETARIA | Del alumno |
+| `GET /api/v1/admin/estudiantes/{id}/calificaciones?anioId=&bimestreId=` | ADMIN | Lectura |
+| `GET /api/v1/admin/cursos/{id}/actas?bimestreId=` | ADMIN | Lectura del acta |
+
+Cuerpo del `PUT`:
+
+```json
+{
+  "calificaciones": [
+    { "matriculaId": 21, "criterio": "Examen parcial", "nota": 15.50 },
+    { "matriculaId": 21, "criterio": "Práctica 1", "nota": 14.00 }
+  ]
+}
+```
 
 **Criterios de aceptación:**
-- No se califica en bimestre cerrado.
-- No se califica a un alumno de otra sección.
-- Nota fuera de rango devuelve `400`.
-- El promedio de unidad y bimestre coincide con la fórmula documentada.
-- Un docente no ve actas de cursos ajenos.
-- Repetir el mismo `criterio` para la misma matrícula y unidad devuelve `409`.
+- No se califica en bimestre cerrado ni en año cerrado (`409`).
+- No se califica a un alumno de otra sección ni a una matrícula retirada.
+- Nota fuera de rango o con más de dos decimales devuelve `400`.
+- Un docente no ve ni califica unidades de cursos ajenos (`404`).
+- Repetir `(matrícula, criterio)` en el mismo `PUT` devuelve `400`.
+- Un `PUT` parcial no altera las notas que no aparecen en el cuerpo.
+- El alumno y el apoderado no ven notas de unidades en `BORRADOR`; secretaría y admin sí.
+- El promedio de unidad, bimestre, año y general coincide con las fórmulas documentadas.
+- El acta devuelve una fila por alumno, una columna por unidad y el promedio del bimestre.
+- Con notas registradas, despublicar/eliminar la unidad o eliminar el curso responde `409`.
+- El cambio de sección se bloquea si la matrícula ya tiene notas (`409`).
 
 ---
 

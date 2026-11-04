@@ -24,6 +24,7 @@ import com.educa360.backend.exception.NotFoundException;
 import com.educa360.backend.repository.ApoderadoEstudianteRepository;
 import com.educa360.backend.repository.ApoderadoRepository;
 import com.educa360.backend.repository.BimestreRepository;
+import com.educa360.backend.repository.CalificacionRepository;
 import com.educa360.backend.repository.ContenidoRepository;
 import com.educa360.backend.repository.CursoRepository;
 import com.educa360.backend.repository.DocenteRepository;
@@ -74,6 +75,9 @@ class PlanificacionServiceTest {
     private BimestreRepository bimestreRepository;
 
     @Mock
+    private CalificacionRepository calificacionRepository;
+
+    @Mock
     private DocenteRepository docenteRepository;
 
     @Mock
@@ -96,9 +100,9 @@ class PlanificacionServiceTest {
     @BeforeEach
     void setUp() {
         servicio = new PlanificacionService(unidadRepository, contenidoRepository,
-                cursoRepository, bimestreRepository, docenteRepository, userRepository,
-                estudianteRepository, matriculaService, apoderadoRepository,
-                vinculoRepository);
+                cursoRepository, bimestreRepository, calificacionRepository,
+                docenteRepository, userRepository, estudianteRepository,
+                matriculaService, apoderadoRepository, vinculoRepository);
     }
 
     @Test
@@ -336,6 +340,45 @@ class PlanificacionServiceTest {
 
         assertThrows(NotFoundException.class, () -> servicio.listarDelApoderado(
                 "lucia@educa360.pe", 70L, 40L));
+    }
+
+    @Test
+    @DisplayName("No se despublica una unidad que ya tiene calificaciones")
+    void noDespublicaUnidadConCalificaciones() {
+        User user = user("dana@educa360.pe", User.Role.DOCENTE);
+        Docente docente = docente(1L, user);
+        AnioEscolar anio = anio();
+        Bimestre bimestre = bimestre(20L, anio);
+        Curso curso = curso(40L, docente, anio);
+        Unidad unidad = unidad(50L, curso, bimestre, 1);
+        unidad.setEstado(Unidad.Estado.PUBLICADA);
+
+        when(userRepository.findByEmail("dana@educa360.pe")).thenReturn(Optional.of(user));
+        when(docenteRepository.findByUser(user)).thenReturn(Optional.of(docente));
+        when(unidadRepository.findById(50L)).thenReturn(Optional.of(unidad));
+        when(calificacionRepository.existsByUnidadId(50L)).thenReturn(true);
+
+        assertThrows(ConflictException.class, () -> servicio.cambiarEstado(
+                "dana@educa360.pe", 50L, Unidad.Estado.BORRADOR));
+    }
+
+    @Test
+    @DisplayName("No se elimina una unidad que ya tiene calificaciones")
+    void noEliminaUnidadConCalificaciones() {
+        User user = user("dana@educa360.pe", User.Role.DOCENTE);
+        Docente docente = docente(1L, user);
+        AnioEscolar anio = anio();
+        Bimestre bimestre = bimestre(20L, anio);
+        Curso curso = curso(40L, docente, anio);
+        Unidad unidad = unidad(50L, curso, bimestre, 1);
+
+        when(userRepository.findByEmail("dana@educa360.pe")).thenReturn(Optional.of(user));
+        when(docenteRepository.findByUser(user)).thenReturn(Optional.of(docente));
+        when(unidadRepository.findById(50L)).thenReturn(Optional.of(unidad));
+        when(calificacionRepository.existsByUnidadId(50L)).thenReturn(true);
+
+        assertThrows(ConflictException.class,
+                () -> servicio.eliminar("dana@educa360.pe", 50L));
     }
 
     // ==================== Helpers ====================

@@ -15,6 +15,7 @@ import com.educa360.backend.exception.BadRequestException;
 import com.educa360.backend.exception.ConflictException;
 import com.educa360.backend.exception.NotFoundException;
 import com.educa360.backend.repository.AsistenciaRepository;
+import com.educa360.backend.repository.CalificacionRepository;
 import com.educa360.backend.repository.CursoRepository;
 import com.educa360.backend.repository.DocenteRepository;
 import com.educa360.backend.repository.EstudianteRepository;
@@ -48,6 +49,7 @@ public class CursoService {
     private final UserRepository userRepository;
     private final UnidadRepository unidadRepository;
     private final AsistenciaRepository asistenciaRepository;
+    private final CalificacionRepository calificacionRepository;
     private final MateriaService materiaService;
     private final SeccionService seccionService;
     private final MatriculaService matriculaService;
@@ -59,6 +61,7 @@ public class CursoService {
                         UserRepository userRepository,
                         UnidadRepository unidadRepository,
                         AsistenciaRepository asistenciaRepository,
+                        CalificacionRepository calificacionRepository,
                         MateriaService materiaService,
                         SeccionService seccionService,
                         MatriculaService matriculaService) {
@@ -69,6 +72,7 @@ public class CursoService {
         this.userRepository = userRepository;
         this.unidadRepository = unidadRepository;
         this.asistenciaRepository = asistenciaRepository;
+        this.calificacionRepository = calificacionRepository;
         this.materiaService = materiaService;
         this.seccionService = seccionService;
         this.matriculaService = matriculaService;
@@ -153,7 +157,7 @@ public class CursoService {
     /**
      * Quitar el curso. Es una baja física a propósito: no es histórico de
      * personas (no se desactiva como User), sino configuración del período —
-     * las notas de ese curso (futuro módulo) decidirán si exigen 404.
+     * las notas de ese curso deciden si exigen 409.
      */
     @Transactional
     public void eliminar(Long id) {
@@ -161,6 +165,10 @@ public class CursoService {
         if (curso.getSeccion().getAnio().estaCerrado()) {
             throw new ConflictException("El año " + curso.getSeccion().getAnio().getAnio()
                     + " está CERRADO: no se pueden eliminar cursos");
+        }
+        if (calificacionRepository.existsByUnidadCursoId(curso.getId())) {
+            throw new ConflictException("El curso ya tiene calificaciones: "
+                    + "no se puede eliminar");
         }
         if (unidadRepository.existsByCursoId(curso.getId())) {
             throw new ConflictException("El curso ya tiene planificación (unidades): "
@@ -170,7 +178,7 @@ public class CursoService {
             throw new ConflictException("El curso ya tiene asistencias: "
                     + "no se puede eliminar");
         }
-        // TODO M6/M8: bloquear con 409 si el curso ya tiene calificaciones o materiales.
+        // TODO M8: bloquear con 409 si el curso ya tiene materiales.
         horarioRepository.deleteByCurso(curso); // primero los bloques: tienen FK al curso
         cursoRepository.delete(curso);
     }

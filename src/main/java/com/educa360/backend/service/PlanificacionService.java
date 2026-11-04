@@ -22,6 +22,7 @@ import com.educa360.backend.exception.NotFoundException;
 import com.educa360.backend.repository.ApoderadoEstudianteRepository;
 import com.educa360.backend.repository.ApoderadoRepository;
 import com.educa360.backend.repository.BimestreRepository;
+import com.educa360.backend.repository.CalificacionRepository;
 import com.educa360.backend.repository.ContenidoRepository;
 import com.educa360.backend.repository.CursoRepository;
 import com.educa360.backend.repository.DocenteRepository;
@@ -50,8 +51,8 @@ import java.util.stream.Collectors;
  * - el alumno y el apoderado sólo ven unidades PUBLICADA;
  * - el reordenamiento se hace en dos pasadas para respetar el unique.
  *
- * Las validaciones de calificaciones (M6) y materiales (M8) quedan como TODO:
- * esas entidades todavía no existen.
+ * Las validaciones de materiales (M8) quedan como TODO: esa entidad todavía
+ * no existe.
  */
 @Service
 public class PlanificacionService {
@@ -60,6 +61,7 @@ public class PlanificacionService {
     private final ContenidoRepository contenidoRepository;
     private final CursoRepository cursoRepository;
     private final BimestreRepository bimestreRepository;
+    private final CalificacionRepository calificacionRepository;
     private final DocenteRepository docenteRepository;
     private final UserRepository userRepository;
     private final EstudianteRepository estudianteRepository;
@@ -71,6 +73,7 @@ public class PlanificacionService {
                                 ContenidoRepository contenidoRepository,
                                 CursoRepository cursoRepository,
                                 BimestreRepository bimestreRepository,
+                                CalificacionRepository calificacionRepository,
                                 DocenteRepository docenteRepository,
                                 UserRepository userRepository,
                                 EstudianteRepository estudianteRepository,
@@ -81,6 +84,7 @@ public class PlanificacionService {
         this.contenidoRepository = contenidoRepository;
         this.cursoRepository = cursoRepository;
         this.bimestreRepository = bimestreRepository;
+        this.calificacionRepository = calificacionRepository;
         this.docenteRepository = docenteRepository;
         this.userRepository = userRepository;
         this.estudianteRepository = estudianteRepository;
@@ -161,7 +165,11 @@ public class PlanificacionService {
         Unidad unidad = unidadDelDocente(docente, unidadId);
 
         validarAbiertoParaPlanificar(unidad.getBimestre());
-        // TODO M6: despublicar sólo si la unidad no tiene calificaciones.
+        if (unidad.estaPublicada() && estado == Unidad.Estado.BORRADOR
+                && calificacionRepository.existsByUnidadId(unidad.getId())) {
+            throw new ConflictException("La unidad ya tiene calificaciones: "
+                    + "no se puede despublicar");
+        }
         unidad.setEstado(estado);
         return UnidadResponse.desde(unidadRepository.save(unidad));
     }
@@ -172,7 +180,11 @@ public class PlanificacionService {
         Unidad unidad = unidadDelDocente(docente, unidadId);
 
         validarAbiertoParaPlanificar(unidad.getBimestre());
-        // TODO M6/M8: bloquear si tiene calificaciones o contenidos con materiales.
+        if (calificacionRepository.existsByUnidadId(unidad.getId())) {
+            throw new ConflictException("La unidad ya tiene calificaciones: "
+                    + "no se puede eliminar");
+        }
+        // TODO M8: bloquear si algún contenido tiene materiales.
         // Hoy sus contenidos se eliminan en cascada (no tienen materiales).
         unidadRepository.delete(unidad);
     }

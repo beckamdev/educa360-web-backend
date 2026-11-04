@@ -12,6 +12,7 @@ import com.educa360.backend.exception.ConflictException;
 import com.educa360.backend.exception.NotFoundException;
 import com.educa360.backend.repository.AnioEscolarRepository;
 import com.educa360.backend.repository.AsistenciaRepository;
+import com.educa360.backend.repository.CalificacionRepository;
 import com.educa360.backend.repository.EstudianteRepository;
 import com.educa360.backend.repository.MatriculaRepository;
 import com.educa360.backend.repository.SeccionRepository;
@@ -51,6 +52,7 @@ public class MatriculaService {
     private final AnioEscolarRepository anioRepository;
     private final UserRepository userRepository;
     private final AsistenciaRepository asistenciaRepository;
+    private final CalificacionRepository calificacionRepository;
     private final Clock clock;
 
     @Autowired
@@ -59,10 +61,11 @@ public class MatriculaService {
                             SeccionRepository seccionRepository,
                             AnioEscolarRepository anioRepository,
                             UserRepository userRepository,
-                            AsistenciaRepository asistenciaRepository) {
+                            AsistenciaRepository asistenciaRepository,
+                            CalificacionRepository calificacionRepository) {
         this(matriculaRepository, estudianteRepository, seccionRepository,
                 anioRepository, userRepository, asistenciaRepository,
-                Clock.systemDefaultZone());
+                calificacionRepository, Clock.systemDefaultZone());
     }
 
     /** Visible para tests: inyecta un reloj falso. */
@@ -72,6 +75,7 @@ public class MatriculaService {
                      AnioEscolarRepository anioRepository,
                      UserRepository userRepository,
                      AsistenciaRepository asistenciaRepository,
+                     CalificacionRepository calificacionRepository,
                      Clock clock) {
         this.matriculaRepository = matriculaRepository;
         this.estudianteRepository = estudianteRepository;
@@ -79,6 +83,7 @@ public class MatriculaService {
         this.anioRepository = anioRepository;
         this.userRepository = userRepository;
         this.asistenciaRepository = asistenciaRepository;
+        this.calificacionRepository = calificacionRepository;
         this.clock = clock;
     }
 
@@ -227,10 +232,11 @@ public class MatriculaService {
     /**
      * ¿La matrícula ya tiene actividad académica?
      *
-     * M5: asistencias. M6 añadirá calificaciones. Mientras no exista ninguna,
-     * el cambio de sección sólo depende de la fecha de inicio del año.
+     * M5: asistencias. M6: calificaciones. Si existe cualquiera de las dos,
+     * la sección ya no se puede cambiar.
      */
     private boolean tieneActividad(Matricula matricula) {
-        return asistenciaRepository.existsByMatriculaId(matricula.getId());
+        return asistenciaRepository.existsByMatriculaId(matricula.getId())
+                || calificacionRepository.existsByMatriculaId(matricula.getId());
     }
 }

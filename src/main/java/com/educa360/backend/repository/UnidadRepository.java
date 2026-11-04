@@ -17,6 +17,9 @@ public interface UnidadRepository extends JpaRepository<Unidad, Long> {
     List<Unidad> findByCursoIdAndEstadoOrderByBimestreNumeroAscNumeroAsc(
             Long cursoId, Unidad.Estado estado);
 
+    /** Unidades de un curso dentro de un bimestre (acta). */
+    List<Unidad> findByCursoIdAndBimestreIdOrderByNumeroAsc(Long cursoId, Long bimestreId);
+
     /** Último número del curso dentro del bimestre, para asignar el siguiente. */
     Optional<Unidad> findFirstByCursoIdAndBimestreIdOrderByNumeroDesc(
             Long cursoId, Long bimestreId);
