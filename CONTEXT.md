@@ -1,7 +1,7 @@
 # Contexto del Proyecto: Educa360 (Backend)
 
 > **Documento vivo — v3 (simplificado)**
-> Última actualización: 2026-11-02
+> Última actualización: 2026-11-04
 > Este archivo es la **fuente de verdad** del dominio, las reglas de negocio y el roadmap.
 > Si el código y este documento difieren, se corrigen ambos en el mismo cambio.
 
@@ -301,7 +301,7 @@ Relación: **1—N** `TicketJustificacion` como resolutor.
 
 #### 3.2.2. Estructura anual
 
-##### `AnioEscolar` 🔧 — tabla `anios_escolares`
+##### `AnioEscolar` ✅ — tabla `anios_escolares`
 
 > Reemplaza al antiguo `PeriodoAcademico`. El nombre anterior queda como alias histórico y no debe usarse en código nuevo.
 
@@ -325,7 +325,7 @@ Reglas:
 - No se elimina si tiene secciones o matrículas.
 - `fechaInicio` marca el primer día de clases y es el corte para cambios de sección: antes de esa fecha se puede cambiar; desde esa fecha, no.
 
-##### `Bimestre` 🆕 — tabla `bimestres`
+##### `Bimestre` ✅ — tabla `bimestres`
 
 | Campo | Tipo | Regla |
 |---|---|---|
@@ -355,7 +355,7 @@ Reglas:
 Relaciones: **N—N** `Docente`; **1—N** `Curso`.
 Regla: `activa=false` impide nuevas asignaciones y cursos; los existentes se conservan.
 
-##### `Seccion` 🔧 — tabla `secciones`
+##### `Seccion` ✅ — tabla `secciones`
 
 | Campo | Tipo | Regla |
 |---|---|---|
@@ -382,7 +382,7 @@ Reglas:
 - Un solo docente por curso.
 - No se elimina si tiene unidades, asistencias, calificaciones o materiales.
 
-##### `HorarioBloque` 🔧 — tabla `horario_bloques`
+##### `HorarioBloque` ✅ — tabla `horario_bloques`
 
 | Campo | Tipo | Regla |
 |---|---|---|
@@ -401,7 +401,7 @@ Reglas:
 
 #### 3.2.3. Matrícula
 
-##### `Matricula` 🔧 — tabla `matriculas`
+##### `Matricula` ✅ — tabla `matriculas`
 
 | Campo | Tipo | Regla |
 |---|---|---|
@@ -426,7 +426,7 @@ Reglas:
 
 #### 3.2.4. Planificación docente
 
-##### `Unidad` 🆕 — tabla `unidades`
+##### `Unidad` ✅ — tabla `unidades`
 
 | Campo | Tipo | Regla |
 |---|---|---|
@@ -451,7 +451,7 @@ Reglas:
 - No se elimina si tiene calificaciones o contenidos con materiales.
 - Se puede despublicar solo si no tiene calificaciones.
 
-##### `Contenido` 🆕 — tabla `contenidos`
+##### `Contenido` ✅ — tabla `contenidos`
 
 | Campo | Tipo | Regla |
 |---|---|---|
@@ -470,7 +470,7 @@ Reglas:
 
 #### 3.2.5. Asistencia
 
-##### `Asistencia` 🆕 — tabla `asistencias`
+##### `Asistencia` ✅ — tabla `asistencias`
 
 | Campo | Tipo | Regla |
 |---|---|---|
@@ -499,7 +499,7 @@ Reglas:
 
 #### 3.2.6. Calificaciones
 
-##### `Calificacion` 🆕 — tabla `calificaciones`
+##### `Calificacion` ✅ — tabla `calificaciones`
 
 | Campo | Tipo | Regla |
 |---|---|---|
@@ -539,7 +539,7 @@ Reglas:
 
 #### 3.2.7. Justificaciones
 
-##### `TicketJustificacion` 🆕 — tabla `tickets_justificacion`
+##### `TicketJustificacion` ✅ — tabla `tickets_justificacion`
 
 | Campo | Tipo | Regla |
 |---|---|---|
@@ -548,7 +548,7 @@ Reglas:
 | `fechaInasistencia` | LocalDate | obligatoria; no futura |
 | `bloque_id` | FK → `HorarioBloque` | opcional; si es `NULL`, aplica a todo el día |
 | `motivo` | String(500) | obligatorio; se guarda con `trim` |
-| `urlArchivoSustento` | String(500) | opcional en M7; el upload real llega en M8 |
+| `urlArchivoSustento` | String(500) | opcional; texto libre en M7. M8 lo reemplaza por `storagePath` (ruta privada en el bucket `sustentos`). |
 | `estado` | enum | `PENDIENTE`, `APROBADO`, `RECHAZADO` |
 | `fechaResolucion` | LocalDateTime | la pone el servidor al resolver |
 | `resueltoPor_id` | FK → `Secretaria` | opcional hasta resolver |
@@ -565,6 +565,7 @@ Reglas:
 - No se permite más de un ticket `PENDIENTE` o `APROBADO` para el mismo alumno, fecha y bloque.
 - Tampoco se permite un ticket de día completo y otro de bloque para la misma fecha del mismo alumno: el alcance más amplio prevalece.
 - Un ticket `RECHAZADO` ya no bloquea uno nuevo.
+- El sustento es opcional. En M7 se acepta como texto libre; en M8 se sube como archivo al bucket privado `sustentos` y solo se puede adjuntar/reemplazar mientras el ticket está `PENDIENTE`.
 - No se elimina; los estados son la historia.
 
 #### 3.2.8. Materiales y comunicados
@@ -582,15 +583,16 @@ Reglas:
 | `nombreOriginal` | String | nombre del archivo |
 | `mimeType` | String | tipo MIME |
 | `tamanoBytes` | Long | tamaño |
-| `publicado` | boolean | visible para alumnos |
-| `fechaPublicacion` | LocalDateTime | automática al publicar |
-| `activo` | boolean | baja lógica |
+| `publicado` | boolean | visible para alumnos; al crear queda en `false` |
+| `fechaPublicacion` | LocalDateTime | automática al publicar; se limpia al despublicar |
+| `activo` | boolean | baja lógica; al desactivar deja de ser accesible |
 
 Reglas:
 - Solo el docente del curso sube materiales.
+- Al crear, el material queda no publicado; se publica con un `PATCH` explícito.
 - Un material no publicado solo lo ve el docente y `ADMIN`.
 - Si está ligado a un contenido de unidad `BORRADOR`, no se muestra al alumno aunque `publicado=true`.
-- La baja es lógica y elimina el archivo de Storage de forma diferida.
+- La baja es lógica (`activo=false`, `publicado=false`) y el objeto se elimina del bucket en la misma operación; si Storage falla, el material queda inactivo y no accesible.
 
 ##### `Comunicado` 🆕 — tabla `comunicados`
 
@@ -651,6 +653,7 @@ Reglas de integridad que se validan en servicio:
 - El docente autenticado es el del curso.
 - El apoderado autenticado tiene vínculo activo con el estudiante.
 - El estudiante autenticado tiene matrícula en el año vigente.
+- Tickets: solo un ticket activo (`PENDIENTE` o `APROBADO`) por alumno, fecha y bloque. Un ticket de día completo (`bloque_id=NULL`) bloquea cualquier ticket activo de esa fecha y viceversa; dos bloques distintos del mismo día sí coexisten. El índice parcial solo cubre el mismo bloque, así que el alcance día completo vs. bloque se valida en `JustificacionService`.
 
 ### 3.4. Estados y transiciones
 
@@ -713,6 +716,16 @@ PRESENTE / TARDANZA / FALTA / JUSTIFICADA
 
 - `JUSTIFICADA` requiere `ticket_id` aprobado, salvo corrección administrativa auditada.
 
+#### `MaterialClase`
+
+```text
+publicado=false ⇄ publicado=true
+activo=true → activo=false  (terminal)
+```
+
+- Publicar fija `fechaPublicacion`; despublicar la limpia.
+- Un material inactivo no vuelve a activarse ni es accesible.
+
 #### `Estudiante`
 
 ```text
@@ -749,7 +762,7 @@ EGRESADO   → (terminal)
 | `Asistencia` | No se borra; se corrige con auditoría. |
 | `Calificacion` | Baja física sólo con el bimestre `ABIERTO`; en `CERRADO` se corrige, no se borra. |
 | `TicketJustificacion` | No se borra; estados. |
-| `MaterialClase` | Baja lógica (`activo=false`) y limpieza diferida en Storage. |
+| `MaterialClase` | Baja lógica (`activo=false`) y eliminación del objeto en Storage en la misma operación. |
 | `Comunicado` | Baja lógica (`activo=false`). |
 
 ### 3.6. Limitaciones de alcance
@@ -817,8 +830,8 @@ EGRESADO   → (terminal)
 | Planificación (unidades/contenidos) | Lectura | — | CRUD de sus cursos | Lectura publicada | Lectura publicada de hijos |
 | Asistencia | Lectura | Lectura | CRUD de sus cursos | Lectura propia | Lectura de hijos |
 | Calificaciones | Lectura | Lectura | CRUD de sus cursos | Lectura propia | Lectura de hijos |
-| Tickets | Lectura | Resolver | — | — | Crear/leer los suyos |
-| Materiales | Lectura | — | CRUD de sus cursos | Lectura publicada | Lectura publicada de hijos |
+| Tickets | — | Resolver/leer | — | — | Crear/leer los suyos |
+| Materiales | Lectura (incluye borradores) | — | CRUD de sus cursos | Lectura publicada | Lectura publicada de hijos |
 | Comunicados | CRUD general/sección | CRUD general | CRUD de sus secciones | Lectura | Lectura de hijos |
 | Cierre y reportes | CRUD | Reportes de alumnos | Actas de sus cursos | Boleta propia | Boleta de hijos |
 
@@ -847,7 +860,7 @@ EGRESADO   → (terminal)
 
 El orden es el orden de implementación recomendado. Cada módulo se cierra (código + tests + Swagger + este documento) antes de pasar al siguiente.
 
-### Módulo 0 — Fundaciones 🔧
+### Módulo 0 — Fundaciones ✅
 
 **Objetivo:** dejar la base técnica lista para el nuevo modelo.
 
@@ -921,7 +934,7 @@ docker compose up -d --build
 
 ---
 
-### Módulo 2 — Estructura académica anual 🔧
+### Módulo 2 — Estructura académica anual ✅
 
 **Objetivo:** modelar el año escolar, sus bimestres y la oferta académica.
 
@@ -970,7 +983,7 @@ docker compose up -d --build
 
 ---
 
-### Módulo 3 — Alumnos, apoderados y matrícula 🔧
+### Módulo 3 — Alumnos, apoderados y matrícula ✅
 
 **Objetivo:** registrar alumnos, vincular apoderados y matricularlos en una sección del año.
 
@@ -1017,7 +1030,7 @@ docker compose up -d --build
 
 ---
 
-### Módulo 4 — Planificación docente 🆕
+### Módulo 4 — Planificación docente ✅
 
 **Objetivo:** que el docente planifique sus cursos por bimestre con unidades y contenidos.
 
@@ -1057,7 +1070,7 @@ docker compose up -d --build
 
 ---
 
-### Módulo 5 — Asistencia 🆕
+### Módulo 5 — Asistencia ✅
 
 **Objetivo:** registrar asistencia por bloque de horario y fecha.
 
@@ -1127,7 +1140,7 @@ Solo `FALTA` es inasistencia injustificada. El mínimo para aprobar es `70%`. Si
 
 ---
 
-### Módulo 6 — Calificaciones 🆕
+### Módulo 6 — Calificaciones ✅
 
 **Objetivo:** registrar notas vigesimales por unidad y criterio.
 
@@ -1235,6 +1248,8 @@ Cuerpo del `POST`:
 }
 ```
 
+> En M8 este campo se reemplaza por `storagePath` y el archivo se sube con `POST /api/v1/apoderado/tickets/{id}/sustento`; el `POST` de creación deja de aceptar `urlArchivoSustento`.
+
 Cuerpo del `PATCH .../resolver`:
 
 ```json
@@ -1261,32 +1276,61 @@ Cuerpo del `PATCH .../resolver`:
 
 **Objetivo:** publicar material didáctico y sustentos en Supabase Storage.
 
-**Entidades:** `MaterialClase`, `TicketJustificacion`.
+**Entidades:** `MaterialClase` (nueva) y `TicketJustificacion` (se le cambia `urlArchivoSustento` por `storagePath` y se le añade el upload de sustento).
 
 **Reglas:**
 - Buckets privados: `materiales` y `sustentos`.
 - El backend sube con service role; nunca expone esa clave al frontend.
 - Se guarda `storagePath`, no una URL pública permanente.
-- La descarga se hace con URL firmada de corta duración.
+- La descarga se hace con URL firmada de corta duración (5 minutos).
 - Solo el docente del curso sube material.
 - Material no publicado solo lo ve el docente y `ADMIN`.
-- Validar MIME, tamaño y extensión.
+- Al crear, el material queda `publicado=false`; se publica con un `PATCH` explícito.
+- Validar MIME, extensión y tamaño; extensión y MIME deben coincidir.
+- Rutas: `materiales/{cursoId}/{uuid}-{nombreSeguro}` y `sustentos/{ticketId}/{uuid}-{nombreSeguro}`. El nombre se sanea y se recorta a 120 caracteres.
+- Materiales permitidos: PDF, DOC/DOCX, PPT/PPTX, XLS/XLSX, JPG/JPEG/PNG y MP4; máximo 25 MB.
+- Sustentos permitidos: PDF, JPG/JPEG/PNG; máximo 5 MB. El sustento es opcional y solo se adjunta/reemplaza mientras el ticket está `PENDIENTE`.
+- La baja de material es lógica (`activo=false`, `publicado=false`) y elimina el objeto del bucket en la misma operación; si Storage falla, el material queda inactivo y no accesible.
+- Reemplazar el archivo de un material elimina el objeto anterior del bucket.
+- Un material inactivo no se lista ni se descarga, ni siquiera para `ADMIN`.
+- M8 completa los guards pendientes: no se elimina un curso, unidad o contenido con materiales (`409`).
 
 **Endpoints:**
 
 | Método y ruta | Rol | Descripción |
 |---|---|---|
-| `GET/POST /api/v1/docente/cursos/{id}/materiales` | DOCENTE | Listado/alta |
-| `PUT/DELETE /api/v1/docente/materiales/{id}` | DOCENTE | Edición/baja lógica |
-| `GET /api/v1/estudiante/cursos/{id}/materiales` | ESTUDIANTE | Publicados |
-| `GET /api/v1/apoderado/hijos/{id}/cursos/{id}/materiales` | APODERADO | Publicados |
-| `GET /api/v1/materiales/{id}/download` | según permisos | URL firmada |
+| `GET/POST /api/v1/docente/cursos/{id}/materiales` | DOCENTE | Listado (incluye no publicados) / alta multipart |
+| `PUT /api/v1/docente/materiales/{id}` | DOCENTE | Edita metadatos (título, descripción, contenido) |
+| `PUT /api/v1/docente/materiales/{id}/archivo` | DOCENTE | Reemplaza el archivo (multipart) |
+| `PATCH /api/v1/docente/materiales/{id}/publicacion` | DOCENTE | Publica/despublica (`{publicado: true\|false}`) |
+| `DELETE /api/v1/docente/materiales/{id}` | DOCENTE | Baja lógica |
+| `GET /api/v1/admin/cursos/{id}/materiales` | ADMIN | Lectura, incluye no publicados |
+| `GET /api/v1/estudiante/cursos/{id}/materiales` | ESTUDIANTE | Solo publicados y activos |
+| `GET /api/v1/apoderado/hijos/{id}/cursos/{id}/materiales` | APODERADO | Solo publicados y activos |
+| `GET /api/v1/materiales/{id}/download` | según permisos | URL firmada de 5 minutos |
+| `POST /api/v1/apoderado/tickets/{id}/sustento` | APODERADO | Sube/reemplaza sustento del propio ticket |
+| `GET /api/v1/apoderado/tickets/{id}/sustento` | APODERADO | URL firmada del sustento propio |
+| `GET /api/v1/secretaria/tickets/{id}/sustento` | SECRETARIA | URL firmada del sustento |
+
+**Contratos:**
+
+- Alta de material: `multipart/form-data` con `archivo` (obligatorio), `titulo` (obligatorio), `descripcion` y `contenidoId` (opcionales). Responde el material con `publicado=false`.
+- Edición de metadatos: JSON `{"titulo":"...","descripcion":"...","contenidoId":null}`. No cambia el archivo.
+- Reemplazo de archivo: `multipart/form-data` con `archivo` (obligatorio).
+- Publicación: `{"publicado":true}` o `{"publicado":false}`.
+- Descarga: responde `{"url":"https://...","expiresAt":"2026-11-04T10:05:00"}`; la URL dura 5 minutos.
+- Sustento: `multipart/form-data` con `archivo` (obligatorio). Responde el ticket con `storagePath` no nulo.
+- Errores de archivo: `400` por MIME/extensión inválida o archivo vacío; `413` por tamaño excedido; `404` por recurso ajeno o inactivo.
 
 **Criterios de aceptación:**
-- Un alumno no descarga material no publicado.
+- Un alumno no descarga material no publicado, inactivo o de una unidad `BORRADOR`.
 - Un docente no sube material a un curso ajeno.
-- La URL firmada expira.
-- La baja lógica no deja el archivo accesible.
+- `ADMIN` lista y descarga materiales no publicados, pero no los modifica.
+- Publicar y despublicar actualiza `fechaPublicacion` y el acceso del alumno.
+- La URL firmada expira a los 5 minutos.
+- La baja lógica no deja el archivo accesible y elimina el objeto del bucket.
+- Un apoderado no adjunta sustento a un ticket ajeno ni a uno ya resuelto.
+- `SECRETARIA` descarga el sustento; `ADMIN` no accede a tickets.
 
 ---
 
@@ -1636,11 +1680,12 @@ Reglas:
 
 ### 10.3. Supabase Storage
 
-- Buckets privados.
-- El backend sube y firma URLs.
-- Los archivos se organizan por año/curso/material.
-- Se validan MIME, tamaño y extensión.
-- La eliminación es diferida y auditada.
+- Buckets privados: `materiales` y `sustentos`.
+- El backend sube con service role y firma URLs de descarga de 5 minutos.
+- Rutas: `materiales/{cursoId}/{uuid}-{nombreSeguro}` y `sustentos/{ticketId}/{uuid}-{nombreSeguro}`.
+- Se validan MIME, extensión y tamaño; extensión y MIME deben coincidir.
+- Materiales: máximo 25 MB (PDF, Office, imágenes y MP4). Sustentos: máximo 5 MB (PDF e imágenes).
+- La baja de material es lógica en BD y elimina el objeto del bucket; si Storage falla, el material queda inactivo e inaccesible.
 
 ### 10.4. Logs y salud
 
@@ -1653,21 +1698,21 @@ Reglas:
 
 ## 11. Estado actual y roadmap
 
-### 11.1. Estado al iniciar la v3
+### 11.1. Estado actual (tras M7)
 
 | Módulo | Estado | Nota |
 |---|---|---|
-| M0 Fundaciones | 🔧 | Docker y CI existen; falta README |
-| M1 Identidad y acceso | ✅ | Implementado; se adapta a los perfiles |
-| M2 Estructura académica | 🔧 | Existe con semántica de bimestre; se reescribe a año + bimestre |
-| M3 Alumnos y matrícula | 🔧 | Existe matrícula simple; se añade `anio_id`, `seccion_id` y `situacionFinal` |
-| M4 Planificación | 🆕 | Nuevo |
-| M5 Asistencia | 🆕 | Nuevo |
-| M6 Calificaciones | 🆕 | Nuevo |
-| M7 Justificaciones | 🆕 | Nuevo |
-| M8 Materiales y Storage | 🆕 | Nuevo |
-| M9 Comunicados | 🆕 | Nuevo |
-| M10 Cierre y reportes | 🆕 | Nuevo |
+| M0 Fundaciones | ✅ | Docker, README, errores uniformes, Swagger, CORS, auditoría y CI |
+| M1 Identidad y acceso | ✅ | JWT, RBAC, cuentas por rol y administración de usuarios |
+| M2 Estructura académica | ✅ | `AnioEscolar`, `Bimestre`, `Seccion`, `Curso` y `HorarioBloque` |
+| M3 Alumnos y matrícula | ✅ | Matrícula anual, apoderados, cambio de sección y retiro/reingreso |
+| M4 Planificación | ✅ | Unidades y contenidos con publicación y orden |
+| M5 Asistencia | ✅ | Asistencia por bloque/fecha, tardanza y resúmenes |
+| M6 Calificaciones | ✅ | Notas por criterio, promedios y acta |
+| M7 Justificaciones | ✅ | Tickets de apoderado y resolución de Secretaría |
+| M8 Materiales y Storage | 🆕 | Siguiente módulo |
+| M9 Comunicados | 🆕 | Pendiente |
+| M10 Cierre y reportes | 🆕 | Pendiente |
 | M11 Endurecimiento y Flyway | 🆕 | Pendiente |
 
 ### 11.2. Orden de implementación
@@ -1717,10 +1762,32 @@ Un módulo se considera terminado cuando:
 | 12 | Los promedios se calculan; no hay actas inmutables. |
 | 13 | `SECRETARIA` publica solo comunicados generales; `DOCENTE` solo en sus secciones. |
 | 14 | Para aprobar el grado, todos los cursos deben tener promedio anual ≥ `11.00` y la asistencia global debe ser ≥ `70%`. |
+| 15 | M4: el `numero` de `Unidad` es automático dentro de `(curso, bimestre)`; los contenidos se devuelven ordenados y se reordenan en bulk. El `PUT` de unidad solo edita título, descripción y fechas. Se puede publicar sin contenidos. `ADMIN` lee todo, incluidos borradores, sin editar. |
+| 16 | M5: el docente solo envía `asistio`; el sistema deriva `TARDANZA` si supera 15 minutos desde `HorarioBloque.horaInicio`. Las fechas pasadas sin registro se asumen `PRESENTE` al consultar. |
+| 17 | M5: se rechaza asistencia futura con `400`; el bulk es upsert parcial; el GET de clase devuelve todos los alumnos activos con `estado=null` si no hay registro. |
+| 18 | M5: `JUSTIFICADA` no se puede registrar desde la API docente; solo `SECRETARIA` la produce al aprobar un ticket (M7). |
+| 19 | M5: los resúmenes incluyen totales, asistencia efectiva, faltas y porcentaje. |
+| 20 | Con asistencia o notas registradas no se puede cambiar la sección (`409`), borrar un curso (`409`) ni despublicar/borrar una unidad con notas (`409`). |
+| 21 | M6: `Calificacion` es única por `(matricula_id, unidad_id, criterio)`; `criterio` es texto libre de hasta 120 caracteres con `trim`; `nota` es `BigDecimal(4,2)` entre `0.00` y `20.00`. |
+| 22 | M6: solo se califica con el bimestre `ABIERTO` y el año no `CERRADO`; más de dos decimales o fuera de rango devuelve `400`. |
+| 23 | M6: el `PUT` es upsert parcial por `(matriculaId, criterio)`; un duplicado `(matrícula, criterio)` en la misma request devuelve `400`. |
+| 24 | M6: el borrado es físico y solo con bimestre `ABIERTO`; en `CERRADO` se corrigen notas, no se borran. |
+| 25 | M6: alumno y apoderado solo ven notas de unidades `PUBLICADA`; docente, secretaría y admin ven también borradores. |
+| 26 | M6: promedio de unidad = media simple; de bimestre por curso = media de unidades con notas; anual por curso = media de bimestres con notas; general = media de los promedios anuales de cada curso. `HALF_UP` a 2 decimales; `null` sin notas. |
+| 27 | M6: el acta tiene una fila por alumno, una columna por unidad y el promedio del bimestre. |
+| 28 | M7: el sustento es texto libre opcional en M7; M8 lo reemplaza por `storagePath` y upload multipart. |
+| 29 | M7: un ticket con bloque exige que la fecha caiga en el día de ese bloque. |
+| 30 | M7: `ADMIN` no accede a la bandeja ni al detalle de tickets; solo `SECRETARIA` resuelve y lee. |
+| 31 | M7: el listado de tickets del apoderado acepta filtros opcionales `anioId` y `estado`. |
+| 32 | M7: aprobar convierte solo filas `FALTA` a `JUSTIFICADA` y las vincula al ticket; `PRESENTE` y `TARDANZA` no se tocan. |
+| 33 | M7: si la asistencia se registra después de aprobar, nace como `JUSTIFICADA` y vinculada al ticket. |
+| 34 | M7: solo un ticket activo (`PENDIENTE`/`APROBADO`) por alumno, fecha y bloque; el alcance de día completo prevalece; `RECHAZADO` no bloquea uno nuevo. |
+| 35 | M7: los tickets no se eliminan; los estados son la historia. |
+| 36 | M8: el material nace `publicado=false` y se publica con `PATCH`; `ADMIN` lee todo, incluidos borradores, sin modificar. La descarga usa URL firmada de 5 minutos. La baja es lógica y elimina el objeto del bucket. |
+| 37 | M8: el sustento se sube/reemplaza solo con el ticket `PENDIENTE`; el archivo vive en el bucket privado `sustentos` y se descarga con URL firmada. |
 
-### 12.2. Supuestos a confirmar con el colegio
+### 12.2. Supuestos operativos
 
-- La sección puede cambiarse solo antes de `AnioEscolar.fechaInicio` y sin actividad registrada.
 - La asistencia efectiva es `PRESENTE + TARDANZA + JUSTIFICADA`; solo `FALTA` es inasistencia injustificada.
 - El porcentaje de asistencia se calcula sobre asistencias registradas, no sobre días calendario.
 - Si falta la nota de algún curso, el cierre se bloquea y requiere revisión de `ADMIN`.
@@ -1740,6 +1807,15 @@ Un módulo se considera terminado cuando:
 ---
 
 ## 13. Registro de cambios
+
+### v3.1 — 2026-11-04 (auditoría tras M7)
+
+- Se actualizan a ✅ los módulos M0–M7 y las entidades implementadas.
+- Se reemplaza “Estado al iniciar la v3” por el estado actual tras M7.
+- Se cierran en §12.1 las decisiones de M4, M5, M6, M7 y M8.
+- Se documenta que el alcance día completo vs. bloque de tickets se valida en servicio, porque el índice parcial solo cubre el mismo bloque.
+- Se resuelven los cabos sueltos de M8: `urlArchivoSustento` → `storagePath`, upload/descarga de sustento, publicación/despublicación de materiales, lectura de `ADMIN`, límites de archivo y rutas de Storage.
+- Se corrige la matriz de autorización: `ADMIN` no accede a tickets.
 
 ### v3 — 2026-11-02
 
