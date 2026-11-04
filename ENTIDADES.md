@@ -1,3 +1,5 @@
+> ⚠️ **OBSOLETO — no usar.** Este documento es la propuesta v2 y fue reemplazado por `CONTEXT.md` v3.1. Varias decisiones de aquí (por ejemplo, `PeriodoAcademico` como año escolar) ya no rigen. La fuente de verdad es `CONTEXT.md`.
+
 # Educa360 — Modelo de entidades (propuesta v2)
 
 Leyenda de estado: ✅ existe y no cambia · 🔧 existe y se modifica · 🆕 nueva (propuesta) · 📋 ya estaba en el roadmap de `CONTEXT.md`, aquí se define completa.
