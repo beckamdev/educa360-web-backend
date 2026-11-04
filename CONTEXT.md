@@ -594,7 +594,7 @@ Reglas:
 - Si está ligado a un contenido de unidad `BORRADOR`, no se muestra al alumno aunque `publicado=true`.
 - La baja es lógica (`activo=false`, `publicado=false`) y el objeto se elimina del bucket en la misma operación; si Storage falla, el material queda inactivo y no accesible.
 
-##### `Comunicado` 🆕 — tabla `comunicados`
+##### `Comunicado` ✅ — tabla `comunicados`
 
 | Campo | Tipo | Regla |
 |---|---|---|
@@ -606,13 +606,15 @@ Reglas:
 
 Reglas:
 - `createdAt` de `Auditable` es la fecha y hora del mensaje; no se duplica en otro campo.
-- `ADMIN` publica mensajes generales (`seccion_id=NULL`) o para una sección.
-- `SECRETARIA` publica solo mensajes generales (`seccion_id=NULL`), para todos los grados.
-- `DOCENTE` publica solo en secciones donde tiene cursos o tutoría.
+- `ADMIN` publica mensajes generales (`seccion_id=NULL`) o para una sección, y edita/elimina cualquiera.
+- `SECRETARIA` publica solo mensajes generales (`seccion_id=NULL`), para todos los grados, y gestiona solo los suyos.
+- `DOCENTE` publica solo en secciones donde tiene cursos o tutoría, y gestiona solo los suyos.
 - El alumno ve los generales y los de su sección.
-- El apoderado ve los generales y los de la sección de cada hijo activo.
+- El apoderado ve los generales y los de la sección de cada hijo activo con matrícula vigente.
 - No hay `tipo` ni `alcance` separados: el filtro es `seccion_id` (`NULL` = general).
-- No se elimina; se desactiva.
+- El contenido es obligatorio, se guarda con `trim` y tiene un máximo de 5000 caracteres.
+- Un año `CERRADO` es solo lectura: crear, editar o dar de baja responde `409`.
+- No se elimina; se desactiva (`activo=false`).
 
 ### 3.3. Restricciones e índices de base de datos
 
@@ -1333,7 +1335,7 @@ Cuerpo del `PATCH .../resolver`:
 
 ---
 
-### Módulo 9 — Comunicados 🆕
+### Módulo 9 — Comunicados ✅
 
 **Objetivo:** mensajes simples del docente a su sección, de Secretaría a toda la institución y del ADMIN a toda la institución o a una sección.
 
@@ -1355,16 +1357,23 @@ Cuerpo del `PATCH .../resolver`:
 |---|---|---|
 | `GET/POST /api/v1/admin/comunicados` | ADMIN | General o por sección |
 | `PUT/DELETE /api/v1/admin/comunicados/{id}` | ADMIN | Edición/baja |
-| `GET/POST /api/v1/secretaria/comunicados` | SECRETARIA | Solo generales |
-| `GET/POST /api/v1/docente/comunicados` | DOCENTE | Sus secciones |
+| `GET/POST /api/v1/secretaria/comunicados` | SECRETARIA | Lee generales; publica generales |
+| `PUT/DELETE /api/v1/secretaria/comunicados/{id}` | SECRETARIA | Edición/baja de sus generales |
+| `GET/POST /api/v1/docente/comunicados` | DOCENTE | Lee generales y sus secciones; publica en las suyas |
+| `PUT/DELETE /api/v1/docente/comunicados/{id}` | DOCENTE | Edición/baja de los suyos |
 | `GET /api/v1/estudiante/comunicados` | ESTUDIANTE | Visibles |
 | `GET /api/v1/apoderado/comunicados` | APODERADO | De sus hijos |
+
+> Los listados de `ADMIN`, `SECRETARIA` y `DOCENTE` aceptan filtros opcionales `anioId`; `ADMIN` y `DOCENTE` aceptan además `seccionId`. Los endpoints de lectura de alumno y apoderado no reciben filtros: el servidor resuelve la sección vigente.
 
 **Criterios de aceptación:**
 - Un docente no publica en una sección ajena.
 - Secretaría no puede publicar en una sección; solo mensajes generales.
+- Secretaría y docente solo editan/eliminan sus propios comunicados; el ajeno responde `404`.
 - Un alumno no ve comunicados de otra sección.
+- Un apoderado solo ve los de las secciones de sus hijos activos con matrícula vigente.
 - Un comunicado inactivo no aparece.
+- Un año `CERRADO` no admite altas, ediciones ni bajas (`409`).
 
 ---
 
@@ -1697,7 +1706,7 @@ Reglas:
 
 ## 11. Estado actual y roadmap
 
-### 11.1. Estado actual (tras M8)
+### 11.1. Estado actual (tras M9)
 
 | Módulo | Estado | Nota |
 |---|---|---|
@@ -1710,7 +1719,7 @@ Reglas:
 | M6 Calificaciones | ✅ | Notas por criterio, promedios y acta |
 | M7 Justificaciones | ✅ | Tickets de apoderado y resolución de Secretaría |
 | M8 Materiales y Storage | ✅ | Buckets privados, materiales y sustento de tickets |
-| M9 Comunicados | 🆕 | Pendiente |
+| M9 Comunicados | ✅ | Generales y por sección, autoría, visibilidad y baja lógica |
 | M10 Cierre y reportes | 🆕 | Pendiente |
 | M11 Endurecimiento y Flyway | 🆕 | Pendiente |
 
@@ -1784,6 +1793,7 @@ Un módulo se considera terminado cuando:
 | 35 | M7: los tickets no se eliminan; los estados son la historia. |
 | 36 | M8: el material nace `publicado=false` y se publica con `PATCH`; `ADMIN` lee todo, incluidos borradores, sin modificar. La descarga usa URL firmada de 5 minutos. La baja es lógica y elimina el objeto del bucket. |
 | 37 | M8: el sustento se sube/reemplaza solo con el ticket `PENDIENTE`; el archivo vive en el bucket privado `sustentos` y se descarga con URL firmada. |
+| 38 | M9: `ADMIN` gestiona cualquier comunicado; `SECRETARIA` y `DOCENTE` solo los propios. `SECRETARIA` publica solo generales; `DOCENTE` solo en secciones donde dicta clase o es tutor. Contenido máximo 5000 caracteres; año `CERRADO` es solo lectura (`409`); baja lógica (`activo=false`). |
 
 ### 12.2. Supuestos operativos
 
@@ -1806,6 +1816,15 @@ Un módulo se considera terminado cuando:
 ---
 
 ## 13. Registro de cambios
+
+### v3.3 — 2026-11-04 (M9 implementado)
+
+- M9 Comunicados queda ✅: entidad `Comunicado` con autor, año, sección opcional, contenido y baja lógica.
+- `ADMIN` publica generales o por sección y gestiona cualquiera; `SECRETARIA` solo generales propios; `DOCENTE` solo secciones donde dicta clase o es tutor, y solo los suyos.
+- Alumno y apoderado leen generales y los de su sección (el apoderado, los de sus hijos activos con matrícula vigente).
+- Se agregan `PUT`/`DELETE` para Secretaría y Docente, filtros de listado y la regla de año `CERRADO` como solo lectura (`409`).
+- Contenido obligatorio con `trim` y máximo de 5000 caracteres.
+- Tests: `ComunicadoServiceTest` (20) y `ComunicadoApiTest` (8); suite total 234.
 
 ### v3.2 — 2026-11-04 (M8 implementado)
 

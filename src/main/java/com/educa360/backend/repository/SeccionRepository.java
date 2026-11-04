@@ -14,4 +14,7 @@ public interface SeccionRepository extends JpaRepository<Seccion, Long> {
     boolean existsByGradoAndLetraAndAnio(Integer grado, String letra, AnioEscolar anio);
 
     List<Seccion> findByAnioId(Long anioId);
+
+    /** Secciones donde el docente es tutor. */
+    List<Seccion> findByTutorId(Long docenteId);
 }
