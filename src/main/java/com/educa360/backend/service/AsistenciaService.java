@@ -17,6 +17,7 @@ import com.educa360.backend.entity.Docente;
 import com.educa360.backend.entity.Estudiante;
 import com.educa360.backend.entity.HorarioBloque;
 import com.educa360.backend.entity.Matricula;
+import com.educa360.backend.entity.TicketJustificacion;
 import com.educa360.backend.entity.User;
 import com.educa360.backend.exception.BadRequestException;
 import com.educa360.backend.exception.ConflictException;
@@ -30,6 +31,7 @@ import com.educa360.backend.repository.DocenteRepository;
 import com.educa360.backend.repository.EstudianteRepository;
 import com.educa360.backend.repository.HorarioBloqueRepository;
 import com.educa360.backend.repository.MatriculaRepository;
+import com.educa360.backend.repository.TicketJustificacionRepository;
 import com.educa360.backend.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -59,7 +61,8 @@ import java.util.stream.Collectors;
  * - sólo el docente dueño del curso registra o corrige;
  * - el docente sólo marca "asistió / no asistió": TARDANZA se deriva con la
  *   hora del servidor (más de 15 minutos después del inicio del bloque);
- * - JUSTIFICADA no se toca aquí: nace en M7 al aprobarse un ticket;
+ * - JUSTIFICADA sólo nace de un ticket aprobado: si el ticket ya existe al
+ *   registrar la falta, la fila se crea justificada;
  * - no se elimina: se corrige y queda la auditoría de {@link Asistencia}.
  *
  * El porcentaje se calcula sobre asistencias registradas; son efectivas
@@ -82,6 +85,7 @@ public class AsistenciaService {
     private final MatriculaService matriculaService;
     private final ApoderadoRepository apoderadoRepository;
     private final ApoderadoEstudianteRepository vinculoRepository;
+    private final TicketJustificacionRepository ticketRepository;
     private final Clock clock;
 
     @Autowired
@@ -95,10 +99,11 @@ public class AsistenciaService {
                              MatriculaRepository matriculaRepository,
                              MatriculaService matriculaService,
                              ApoderadoRepository apoderadoRepository,
-                             ApoderadoEstudianteRepository vinculoRepository) {
+                             ApoderadoEstudianteRepository vinculoRepository,
+                             TicketJustificacionRepository ticketRepository) {
         this(asistenciaRepository, cursoRepository, horarioRepository, bimestreRepository,
                 docenteRepository, userRepository, estudianteRepository, matriculaRepository,
-                matriculaService, apoderadoRepository, vinculoRepository,
+                matriculaService, apoderadoRepository, vinculoRepository, ticketRepository,
                 Clock.systemDefaultZone());
     }
 
@@ -114,6 +119,7 @@ public class AsistenciaService {
                       MatriculaService matriculaService,
                       ApoderadoRepository apoderadoRepository,
                       ApoderadoEstudianteRepository vinculoRepository,
+                      TicketJustificacionRepository ticketRepository,
                       Clock clock) {
         this.asistenciaRepository = asistenciaRepository;
         this.cursoRepository = cursoRepository;
@@ -126,6 +132,7 @@ public class AsistenciaService {
         this.matriculaService = matriculaService;
         this.apoderadoRepository = apoderadoRepository;
         this.vinculoRepository = vinculoRepository;
+        this.ticketRepository = ticketRepository;
         this.clock = clock;
     }
 
@@ -335,16 +342,38 @@ public class AsistenciaService {
                 : new Asistencia(matricula, bloque, fecha);
 
         if (!item.asistio()) {
-            asistencia.setEstado(Asistencia.Estado.FALTA);
-        } else if (existente == null || existente.getEstado() == Asistencia.Estado.FALTA) {
-            // Sólo se deriva al crear o al corregir una falta; una fila ya
-            // marcada PRESENTE/TARDANZA no se degrada por una edición tardía.
-            asistencia.setEstado(estadoPresente(bloque, fecha));
+            TicketJustificacion ticket = ticketAprobado(matricula, bloque, fecha);
+            if (ticket != null) {
+                // La falta ya estaba justificada por Secretaría: nace o se
+                // corrige directamente como JUSTIFICADA y queda trazada.
+                asistencia.setEstado(Asistencia.Estado.JUSTIFICADA);
+                asistencia.setTicket(ticket);
+            } else {
+                asistencia.setEstado(Asistencia.Estado.FALTA);
+                asistencia.setTicket(null);
+            }
+        } else {
+            if (existente == null || existente.getEstado() == Asistencia.Estado.FALTA) {
+                // Sólo se deriva al crear o al corregir una falta; una fila ya
+                // marcada PRESENTE/TARDANZA no se degrada por una edición tardía.
+                asistencia.setEstado(estadoPresente(bloque, fecha));
+            }
+            asistencia.setTicket(null);
         }
 
         asistencia.setObservacion(item.observacion());
         asistencia.setRegistradoPor(docente);
         asistenciaRepository.save(asistencia);
+    }
+
+    /** Ticket aprobado que cubre la falta de esta matrícula, bloque y fecha. */
+    private TicketJustificacion ticketAprobado(Matricula matricula, HorarioBloque bloque,
+                                               LocalDate fecha) {
+        return ticketRepository.buscarCoberturaAprobada(
+                        matricula.getEstudiante().getId(), fecha, bloque.getId())
+                .stream()
+                .findFirst()
+                .orElse(null);
     }
 
     /**

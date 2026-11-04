@@ -53,6 +53,15 @@ public class Asistencia extends Auditable {
     private String observacion;
 
     /**
+     * Ticket aprobado que justificó esta falta. Es NULL mientras la fila
+     * no haya sido justificada; al aprobarse un ticket se vincula para
+     * conservar la trazabilidad.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "ticket_id")
+    private TicketJustificacion ticket;
+
+    /**
      * Quién registró o corrigió por última vez. En M7, cuando Secretaría
      * justifica, la asistencia conserva el docente que la había registrado.
      */
@@ -129,6 +138,14 @@ public class Asistencia extends Auditable {
 
     public void setObservacion(String observacion) {
         this.observacion = observacion;
+    }
+
+    public TicketJustificacion getTicket() {
+        return ticket;
+    }
+
+    public void setTicket(TicketJustificacion ticket) {
+        this.ticket = ticket;
     }
 
     public Docente getRegistradoPor() {

@@ -5,6 +5,7 @@ import com.educa360.backend.dto.AsistenciaClaseResponse;
 import com.educa360.backend.dto.AsistenciaItemRequest;
 import com.educa360.backend.dto.AsistenciaResumenResponse;
 import com.educa360.backend.entity.AnioEscolar;
+import com.educa360.backend.entity.Apoderado;
 import com.educa360.backend.entity.Asistencia;
 import com.educa360.backend.entity.Bimestre;
 import com.educa360.backend.entity.Curso;
@@ -15,6 +16,7 @@ import com.educa360.backend.entity.HorarioBloque;
 import com.educa360.backend.entity.Materia;
 import com.educa360.backend.entity.Matricula;
 import com.educa360.backend.entity.Seccion;
+import com.educa360.backend.entity.TicketJustificacion;
 import com.educa360.backend.entity.User;
 import com.educa360.backend.exception.BadRequestException;
 import com.educa360.backend.exception.ConflictException;
@@ -28,6 +30,7 @@ import com.educa360.backend.repository.DocenteRepository;
 import com.educa360.backend.repository.EstudianteRepository;
 import com.educa360.backend.repository.HorarioBloqueRepository;
 import com.educa360.backend.repository.MatriculaRepository;
+import com.educa360.backend.repository.TicketJustificacionRepository;
 import com.educa360.backend.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -102,6 +105,9 @@ class AsistenciaServiceTest {
 
     @Mock
     private ApoderadoEstudianteRepository vinculoRepository;
+
+    @Mock
+    private TicketJustificacionRepository ticketRepository;
 
     private User userDocente;
     private Docente docente;
@@ -293,6 +299,33 @@ class AsistenciaServiceTest {
     }
 
     @Test
+    @DisplayName("Una falta registrada después de aprobar el ticket nace JUSTIFICADA")
+    void faltaNaceJustificadaSiHayTicketAprobado() {
+        servicio = servicioEn(instante("2026-03-09T08:05:00Z"));
+        prepararDocenteYClase();
+        when(asistenciaRepository.findByMatriculaIdAndBloqueIdAndFecha(70L, 50L, FECHA))
+                .thenReturn(Optional.empty());
+        TicketJustificacion ticket = ticket(90L, matricula.getEstudiante());
+        when(ticketRepository.buscarCoberturaAprobada(60L, FECHA, 50L))
+                .thenReturn(List.of(ticket));
+        AtomicReference<Asistencia> guardada = new AtomicReference<>();
+        when(asistenciaRepository.save(any(Asistencia.class))).thenAnswer(inv -> {
+            guardada.set(inv.getArgument(0));
+            return guardada.get();
+        });
+        when(asistenciaRepository.findByBloqueIdAndFecha(50L, FECHA))
+                .thenAnswer(inv -> guardada.get() == null
+                        ? List.of() : List.of(guardada.get()));
+
+        servicio.registrar("dana@educa360.pe", 40L,
+                new AsistenciaBulkRequest(50L, FECHA,
+                        List.of(new AsistenciaItemRequest(70L, false, null))));
+
+        assertEquals(Asistencia.Estado.JUSTIFICADA, guardada.get().getEstado());
+        assertEquals(ticket, guardada.get().getTicket());
+    }
+
+    @Test
     @DisplayName("Una edición tardía no degrada un PRESENTE ya registrado")
     void noDegradaPresenteATardanza() {
         servicio = servicioEn(instante("2026-03-09T08:16:00Z"));
@@ -392,7 +425,7 @@ class AsistenciaServiceTest {
         return new AsistenciaService(asistenciaRepository, cursoRepository, horarioRepository,
                 bimestreRepository, docenteRepository, userRepository, estudianteRepository,
                 matriculaRepository, matriculaService, apoderadoRepository, vinculoRepository,
-                Clock.fixed(instante, ZONA));
+                ticketRepository, Clock.fixed(instante, ZONA));
     }
 
     private void prepararDocenteYClase() {
@@ -484,6 +517,17 @@ class AsistenciaServiceTest {
         Asistencia entidad = new Asistencia(matricula, bloque, fecha);
         entidad.setId(id);
         entidad.setEstado(estado);
+        return entidad;
+    }
+
+    private TicketJustificacion ticket(Long id, Estudiante estudiante) {
+        User user = user("lucia@educa360.pe", User.Role.APODERADO);
+        Apoderado apoderado = new Apoderado(user);
+        apoderado.setId(91L);
+        TicketJustificacion entidad = new TicketJustificacion(
+                apoderado, estudiante, FECHA, bloque, "Cita médica", null);
+        entidad.setId(id);
+        entidad.setEstado(TicketJustificacion.Estado.APROBADO);
         return entidad;
     }
 }

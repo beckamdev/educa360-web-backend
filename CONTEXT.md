@@ -479,7 +479,7 @@ Reglas:
 | `fecha` | LocalDate | obligatoria; no futura |
 | `estado` | enum | `PRESENTE`, `TARDANZA`, `FALTA`, `JUSTIFICADA` |
 | `observacion` | String | opcional |
-| `ticket_id` | FK → `TicketJustificacion` | se agrega en M7; trazabilidad de la justificación |
+| `ticket_id` | FK → `TicketJustificacion` | nullable; se llena al aprobar el ticket o al registrar una falta ya justificada |
 | `registradoPor_id` | FK → `Docente` | opcional |
 
 Único `(matricula_id, bloque_id, fecha)`.
@@ -547,22 +547,24 @@ Reglas:
 | `estudiante_id` | FK → `Estudiante` | obligatoria |
 | `fechaInasistencia` | LocalDate | obligatoria; no futura |
 | `bloque_id` | FK → `HorarioBloque` | opcional; si es `NULL`, aplica a todo el día |
-| `motivo` | String | obligatorio |
-| `urlArchivoSustento` | String | ruta/URL de Supabase Storage |
+| `motivo` | String(500) | obligatorio; se guarda con `trim` |
+| `urlArchivoSustento` | String(500) | opcional en M7; el upload real llega en M8 |
 | `estado` | enum | `PENDIENTE`, `APROBADO`, `RECHAZADO` |
-| `fechaResolucion` | LocalDateTime | al resolver |
+| `fechaResolucion` | LocalDateTime | la pone el servidor al resolver |
 | `resueltoPor_id` | FK → `Secretaria` | opcional hasta resolver |
-| `observacionesAdmin` | String | opcional |
+| `observacionesAdmin` | String(500) | opcional; se guarda con `trim` |
 
 Reglas:
 - Solo el apoderado con vínculo activo crea tickets para su representado.
 - La fecha no puede ser futura.
-- Si se indica `bloque_id`, debe ser de un curso de la sección del alumno.
-- Solo se resuelve desde `PENDIENTE`.
-- Al aprobar: las asistencias `FALTA` del alumno en esa fecha (y bloque, si se indicó) pasan a `JUSTIFICADA` y se vinculan al ticket, en la misma transacción.
-- Si la asistencia se registra después, el servicio la crea directamente como `JUSTIFICADA`.
+- Si se indica `bloque_id`, debe ser de un curso de la sección de la matrícula del alumno en el año de la fecha, y la fecha debe caer en el día de ese bloque.
+- Sin `bloque_id`, el ticket cubre todo el día.
+- Solo se resuelve desde `PENDIENTE`; no hay vuelta atrás.
+- Al aprobar: las asistencias `FALTA` del alumno en esa fecha (y bloque, si se indicó) pasan a `JUSTIFICADA` y se vinculan al ticket, en la misma transacción. `PRESENTE` y `TARDANZA` no se tocan.
+- Si la asistencia se registra después, el servicio la crea directamente como `JUSTIFICADA` y la vincula al ticket aprobado.
 - No se permite más de un ticket `PENDIENTE` o `APROBADO` para el mismo alumno, fecha y bloque.
 - Tampoco se permite un ticket de día completo y otro de bloque para la misma fecha del mismo alumno: el alcance más amplio prevalece.
+- Un ticket `RECHAZADO` ya no bloquea uno nuevo.
 - No se elimina; los estados son la historia.
 
 #### 3.2.8. Materiales y comunicados
@@ -1193,35 +1195,65 @@ Cuerpo del `PUT`:
 
 ---
 
-### Módulo 7 — Justificaciones 🆕
+### Módulo 7 — Justificaciones ✅
 
 **Objetivo:** que el apoderado justifique inasistencias y Secretaría las resuelva.
 
-**Entidades:** `TicketJustificacion`, `Asistencia`.
+**Entidades:** `TicketJustificacion`, `Asistencia` (se agrega `ticket_id`).
 
 **Reglas:**
-- Solo el apoderado con vínculo activo crea tickets.
+- Solo el apoderado con vínculo activo crea tickets de su representado.
 - La fecha no puede ser futura.
-- Un ticket puede ser de todo el día o de un bloque.
-- Secretaría resuelve; al aprobar se actualizan las faltas.
-- Si la asistencia se registra después, nace justificada.
-- No se permite más de un ticket activo por alumno/fecha/bloque.
+- Un ticket puede ser de todo el día (`bloque_id` nulo) o de un bloque.
+- Si hay bloque, debe ser de la sección de la matrícula del alumno y la fecha debe caer en el día de ese bloque.
+- Secretaría resuelve; al aprobar se actualizan las faltas del alcance en la misma transacción.
+- Solo se resuelve desde `PENDIENTE`; no hay vuelta atrás.
+- Si la asistencia se registra después de aprobar, nace `JUSTIFICADA` y vinculada al ticket.
+- No se permite más de un ticket activo por alumno/fecha/bloque; el alcance de día completo prevalece.
+- Un ticket `RECHAZADO` ya no bloquea uno nuevo.
 - No se elimina; los estados son la historia.
+- ADMIN no accede a la bandeja: resolver es exclusivo de SECRETARIA.
 
 **Endpoints:**
 
 | Método y ruta | Rol | Descripción |
 |---|---|---|
-| `GET/POST /api/v1/apoderado/hijos/{id}/tickets` | APODERADO | Sus tickets |
+| `GET /api/v1/apoderado/hijos/{id}/tickets?anioId=&estado=` | APODERADO | Historial del hijo |
+| `POST /api/v1/apoderado/hijos/{id}/tickets` | APODERADO | Crea ticket `PENDIENTE` |
 | `GET /api/v1/secretaria/tickets?estado=&fecha=` | SECRETARIA | Bandeja |
-| `PATCH /api/v1/secretaria/tickets/{id}/resolver` | SECRETARIA | Aprobar/rechazar |
 | `GET /api/v1/secretaria/tickets/{id}` | SECRETARIA | Detalle |
+| `PATCH /api/v1/secretaria/tickets/{id}/resolver` | SECRETARIA | Aprueba o rechaza |
+
+Cuerpo del `POST`:
+
+```json
+{
+  "fechaInasistencia": "2026-03-09",
+  "bloqueId": null,
+  "motivo": "Cita médica",
+  "urlArchivoSustento": null
+}
+```
+
+Cuerpo del `PATCH .../resolver`:
+
+```json
+{
+  "estado": "APROBADO",
+  "observacionesAdmin": "Documento válido"
+}
+```
 
 **Criterios de aceptación:**
-- Un apoderado no ve tickets de hijos ajenos.
+- Un apoderado no ve ni crea tickets de hijos ajenos (`404`).
+- Una fecha futura, un motivo vacío o una fecha que no es el día del bloque devuelven `400`.
+- Un bloque de otra sección devuelve `404`.
+- Un ticket activo que se solapa devuelve `409`; dos bloques distintos del mismo día conviven.
 - Aprobar un ticket actualiza todas las faltas del alcance en una transacción.
 - Rechazar no toca la asistencia.
-- Un ticket ya resuelto no se vuelve a resolver.
+- Un ticket ya resuelto no se vuelve a resolver (`409`).
+- Una falta registrada después de aprobar nace `JUSTIFICADA`.
+- ADMIN no entra a la bandeja de Secretaría (`403`).
 
 ---
 

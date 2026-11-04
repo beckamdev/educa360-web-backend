@@ -18,6 +18,13 @@ public interface AsistenciaRepository extends JpaRepository<Asistencia, Long> {
     /** Todas las filas de una clase (bloque + fecha), para pintar la hoja. */
     List<Asistencia> findByBloqueIdAndFecha(Long bloqueId, LocalDate fecha);
 
+    /** Filas de un alumno en una fecha (alcance de día completo de un ticket). */
+    List<Asistencia> findByMatriculaIdAndFecha(Long matriculaId, LocalDate fecha);
+
+    /** Fila de un alumno en un bloque y fecha (alcance de un ticket de bloque). */
+    List<Asistencia> findByMatriculaIdAndFechaAndBloqueId(
+            Long matriculaId, LocalDate fecha, Long bloqueId);
+
     /** Historial anual de una matrícula, ordenado por fecha y hora del bloque. */
     List<Asistencia> findByMatriculaIdOrderByFechaAscBloqueHoraInicioAsc(Long matriculaId);
 

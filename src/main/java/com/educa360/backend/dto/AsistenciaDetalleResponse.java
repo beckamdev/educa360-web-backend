@@ -17,7 +17,8 @@ public record AsistenciaDetalleResponse(
         LocalTime horaInicio,
         LocalTime horaFin,
         Asistencia.Estado estado,
-        String observacion
+        String observacion,
+        Long ticketId
 ) {
     public static AsistenciaDetalleResponse desde(Asistencia asistencia) {
         return new AsistenciaDetalleResponse(
@@ -30,7 +31,8 @@ public record AsistenciaDetalleResponse(
                 asistencia.getBloque().getHoraInicio(),
                 asistencia.getBloque().getHoraFin(),
                 asistencia.getEstado(),
-                asistencia.getObservacion()
+                asistencia.getObservacion(),
+                asistencia.getTicket() != null ? asistencia.getTicket().getId() : null
         );
     }
 }

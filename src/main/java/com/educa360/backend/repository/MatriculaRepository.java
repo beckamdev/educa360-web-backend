@@ -16,6 +16,9 @@ public interface MatriculaRepository extends JpaRepository<Matricula, Long> {
     /** La matrícula anual del alumno (una sola por año). */
     Optional<Matricula> findByEstudianteIdAndAnioId(Long estudianteId, Long anioId);
 
+    /** La matrícula del alumno en un año calendario (para tickets por fecha). */
+    Optional<Matricula> findByEstudianteIdAndAnioAnio(Long estudianteId, Integer anio);
+
     /** Todas las matrículas de un año (listado de Secretaría). */
     List<Matricula> findByAnioId(Long anioId);
 
