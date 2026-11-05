@@ -1425,28 +1425,32 @@ Cuerpo del `PATCH .../resolver`:
 
 ---
 
-### Módulo 11 — Endurecimiento 🆕
+### Módulo 11 — Endurecimiento ✅
 
 **Objetivo:** dejar el sistema listo para producción.
 
-Incluye:
-- Flyway en todos los entornos y `ddl-auto=validate`.
-- Migración del esquema actual a la nueva semántica anual.
+Implementado:
+- Flyway en todos los entornos y `spring.jpa.hibernate.ddl-auto=validate`.
+- `V1__esquema_inicial.sql` con el esquema completo.
+- `V2__datos_demo.sql` con actores y escenario mínimo, solo en desarrollo.
+- Docker non-root y `HEALTHCHECK` contra `/actuator/health`.
+- Actuator expone únicamente `health`.
+- CI ejecuta `./mvnw -B test` en push/PR a `main` y `develop`.
+
+Diferido y documentado como limitación:
 - Refresh tokens o rotación de JWT.
-- Rate limiting distribuido (Redis) si hay más de una instancia.
-- Docker non-root.
-- CI en `main` con tests y análisis.
-- Backups de PostgreSQL.
-- Observabilidad: logs estructurados, health checks, métricas.
+- Rate limiting distribuido (Redis) para múltiples instancias.
+- Backups automáticos de PostgreSQL y prueba de restore.
+- Métricas, logs estructurados y alertas.
 - Revisión de seguridad de Storage y CORS.
-- Documentación de operación y recuperación.
 
 **Criterios de aceptación:**
-- El esquema se migra desde cero con Flyway.
-- No hay secretos en Git.
-- El contenedor corre con usuario no root.
-- El pipeline falla si los tests fallan.
-- Existe procedimiento de backup/restore probado.
+- El esquema se migra desde cero con Flyway. ✅
+- Hibernate valida el esquema (`ddl-auto=validate`). ✅
+- No hay secretos en Git. ✅
+- El contenedor corre con usuario no root. ✅
+- El pipeline falla si los tests fallan. ✅
+- Los datos demo no se cargan en producción. ✅
 
 ---
 
@@ -1454,10 +1458,12 @@ Incluye:
 
 ### 6.1. Bootstrap del sistema
 
-1. Se levanta la BD vacía.
-2. `POST /api/v1/auth/register` crea el primer `ADMIN`.
+1. Se levanta la BD vacía y Flyway aplica el esquema.
+2. Sin datos demo, `POST /api/v1/auth/register` crea el primer `ADMIN`.
 3. A partir de ahí, el endpoint responde `403`.
 4. El `ADMIN` crea docentes, secretarias y la estructura del año.
+
+> En desarrollo, `db/seed/V2__datos_demo.sql` ya crea los cinco actores y un escenario mínimo; las credenciales están en `CREDENCIALES.md`.
 
 ### 6.2. Preparación de un año escolar
 
@@ -1524,36 +1530,39 @@ Incluye:
 
 ## 7. Base de datos y migraciones
 
-### 7.1. Estrategia durante el desarrollo
+### 7.1. Estrategia actual (M11)
 
-- El esquema se genera con JPA (`spring.jpa.hibernate.ddl-auto=update`).
-- No hay migraciones durante la construcción del modelo: el modelo todavía cambia.
-- Para aplicar un cambio de esquema se recrea la BD de desarrollo:
+- El esquema lo gobierna **Flyway**; Hibernate solo valida (`spring.jpa.hibernate.ddl-auto=validate`).
+- `db/migration/V1__esquema_inicial.sql` contiene el esquema completo.
+- `db/seed/V2__datos_demo.sql` contiene datos mínimos de demostración y **solo se carga en desarrollo**.
+- `FLYWAY_LOCATIONS` decide qué migraciones se aplican:
+  - desarrollo: `classpath:db/migration,classpath:db/seed`;
+  - producción: `classpath:db/migration`.
+- Los tests de integración usan el perfil `test`, que carga solo `db/migration`, y Testcontainers; no tocan la BD de desarrollo.
+- Para recrear la BD de desarrollo:
 
 ```bash
 docker compose down -v
 docker compose up -d --build
 ```
 
-- Los tests de integración usan Testcontainers; no tocan la BD de desarrollo.
-- No se versionan datos de desarrollo ni volúmenes.
+- No se versionan volúmenes ni datos reales.
 
-### 7.2. Flyway en la fase final (M11)
-
-Cuando el modelo esté estable:
+### 7.2. Reglas de migración
 
 ```text
 src/main/resources/db/migration/
-  V1__schema_inicial.sql
-  V2__indices_parciales.sql
+  V1__esquema_inicial.sql
+src/main/resources/db/seed/
+  V2__datos_demo.sql
 ```
 
-Reglas:
-- `spring.jpa.hibernate.ddl-auto=validate` en todos los entornos.
+- Una migración ya aplicada **no se edita**; se agrega una nueva versión (`V3__...`).
+- `ddl-auto=validate` en todos los entornos: si una entidad no coincide con el esquema, la aplicación no arranca.
 - Ningún cambio de esquema se hace a mano en producción.
-- Los índices parciales y checks van en SQL.
-- Los tests de migración ejecutan Flyway sobre Testcontainers.
-- La migración se prueba desde cero y sobre una copia de la BD real antes de desplegar.
+- Los índices, checks y constraints viven en el SQL de la migración.
+- La migración se prueba desde cero sobre Testcontainers y sobre una BD vacía antes de desplegar.
+- Las contraseñas de los datos demo se documentan en `CREDENCIALES.md`; no se cargan en producción.
 
 ### 7.3. Convenciones de esquema
 
@@ -1708,14 +1717,15 @@ Reglas:
 
 - Logs estructurados con nivel configurable.
 - No se loguean contraseñas, tokens ni datos sensibles.
-- Health check en `/actuator/health` si se añade Actuator.
-- Alertas básicas de errores 5xx.
+- Actuator expone únicamente `/actuator/health`, público para Docker/CI; el resto de endpoints sigue exigiendo JWT.
+- El `HEALTHCHECK` del contenedor consulta `/actuator/health`.
+- Alertas básicas de errores 5xx (pendiente).
 
 ---
 
 ## 11. Estado actual y roadmap
 
-### 11.1. Estado actual (tras M10)
+### 11.1. Estado actual (tras M11)
 
 | Módulo | Estado | Nota |
 |---|---|---|
@@ -1730,7 +1740,7 @@ Reglas:
 | M8 Materiales y Storage | ✅ | Buckets privados, materiales y sustento de tickets |
 | M9 Comunicados | ✅ | Generales y por sección, autoría, visibilidad y baja lógica |
 | M10 Cierre y reportes | ✅ | Cierre anual, boletas, historial y reportes |
-| M11 Endurecimiento y Flyway | 🆕 | Pendiente |
+| M11 Endurecimiento y Flyway | ✅ | Flyway, `ddl-auto=validate`, Docker non-root, health check y CI |
 
 ### 11.2. Orden de implementación
 
@@ -1804,6 +1814,7 @@ Un módulo se considera terminado cuando:
 | 37 | M8: el sustento se sube/reemplaza solo con el ticket `PENDIENTE`; el archivo vive en el bucket privado `sustentos` y se descarga con URL firmada. |
 | 38 | M9: `ADMIN` gestiona cualquier comunicado; `SECRETARIA` y `DOCENTE` solo los propios. `SECRETARIA` publica solo generales; `DOCENTE` solo en secciones donde dicta clase o es tutor. Contenido máximo 5000 caracteres; año `CERRADO` es solo lectura (`409`); baja lógica (`activo=false`). |
 | 39 | M10: el cierre exige al menos un bimestre y todos `CERRADO`; solo cuentan notas de unidades `PUBLICADA`. `APROBADO` exige todos los cursos con promedio anual ≥ `11.00` y asistencia global ≥ `70%`; sin registros de asistencia el porcentaje es `0.00%`. `RETIRADO` se conserva y no bloquea. Al aprobar 5° grado, el alumno pasa a `EGRESADO`. El cierre es idempotente y los reportes validan que bimestre y sección pertenezcan al año. |
+| 40 | M11: Flyway gobierna el esquema y Hibernate valida (`ddl-auto=validate`). Los datos demo viven en `db/seed` y solo se cargan si `FLYWAY_LOCATIONS` incluye esa ruta; en producción se usa solo `classpath:db/migration`. Las migraciones aplicadas no se editan. |
 
 ### 12.2. Supuestos operativos
 
@@ -1822,10 +1833,23 @@ Un módulo se considera terminado cuando:
 6. No hay primaria ni inicial.
 7. No hay notificaciones push/correo.
 8. El rate limiting de login es en memoria; no sirve con múltiples instancias.
+9. No hay refresh tokens: el JWT dura 24 h y debe renovarse iniciando sesión.
+10. No hay backups automáticos ni métricas/alertas; el health check es básico.
 
 ---
 
 ## 13. Registro de cambios
+
+### v3.5 — 2026-11-04 (M11 implementado)
+
+- M11 Endurecimiento queda ✅: Flyway gobierna el esquema y Hibernate valida con `ddl-auto=validate`.
+- `V1__esquema_inicial.sql` reproduce el esquema sobre PostgreSQL 17; `V2__datos_demo.sql` crea los cinco actores y un escenario mínimo.
+- `FLYWAY_LOCATIONS` separa esquema y datos demo; en producción se usa solo `classpath:db/migration`.
+- El perfil `test` carga solo el esquema; la suite completa sigue en 252 tests.
+- Docker corre como usuario non-root y tiene `HEALTHCHECK` contra `/actuator/health`; Actuator expone únicamente `health` y lo deja público para Docker/CI.
+- Verificado con la imagen real: arranca como `educa360`, aplica V1+V2 y queda `healthy`; el login demo y los endpoints protegidos responden `200`/`401` según corresponda.
+- Las credenciales demo se documentan en `CREDENCIALES.md`.
+- Refresh tokens, rate limiting distribuido, backups y métricas quedan documentados como limitaciones.
 
 ### v3.4 — 2026-11-04 (M10 implementado)
 
