@@ -2,7 +2,7 @@
 
 API REST para la gestión académica del Colegio Nuestra Señora de Monserrat.
 
-El dominio y el roadmap viven en [`CONTEXT.md`](CONTEXT.md). Este README cubre
+El dominio y el roadmap viven en [`docs/CONTEXT.md`](docs/CONTEXT.md). Este README cubre
 solo el arranque técnico del proyecto.
 
 ## Stack
@@ -143,4 +143,4 @@ src/main/java/com/educa360/backend/
 - Fechas/hora en ISO-8601.
 
 El detalle de módulos, endpoints y reglas de negocio está en
-[`CONTEXT.md`](CONTEXT.md).
+[`docs/CONTEXT.md`](docs/CONTEXT.md).

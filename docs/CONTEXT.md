@@ -1764,7 +1764,7 @@ Un módulo se considera terminado cuando:
 - Las reglas de este documento están implementadas.
 - Swagger está actualizado.
 - Hay tests de éxito y de error.
-- `CONTEXT.md` se actualizó si cambió alguna decisión.
+- `docs/CONTEXT.md` se actualizó si cambió alguna decisión.
 - El frontend tiene el contrato estable o se documentó el cambio.
 
 ---
