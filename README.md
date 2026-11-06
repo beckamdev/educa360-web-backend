@@ -37,6 +37,9 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
+La primera vez, Flyway crea el esquema y carga los datos demo. Las cuentas de
+prueba están en [`docs/CREDENCIALES.md`](docs/CREDENCIALES.md).
+
 Servicios:
 
 | Servicio | URL |
@@ -66,6 +69,7 @@ El archivo `.env` **no se versiona**.
 | `POSTGRES_PASSWORD` | Sí | Contraseña de PostgreSQL |
 | `POSTGRES_PORT` | No | Puerto local de PostgreSQL (por defecto `5432`) |
 | `BACKEND_PORT` | No | Puerto local del backend (por defecto `8080`) |
+| `FLYWAY_LOCATIONS` | No | Migraciones a aplicar. Desarrollo: esquema + datos demo; producción: solo `classpath:db/migration` |
 | `APP_JWT_SECRET` | Sí | Clave HS256, mínimo 32 bytes |
 | `APP_JWT_EXPIRATION_MS` | No | Validez del token (por defecto 24 h) |
 | `APP_CORS_ALLOWED_ORIGINS` | No | Orígenes permitidos, separados por coma (`*` en desarrollo) |
@@ -88,14 +92,15 @@ openssl rand -base64 48
 
 ## Reset de la base de datos (desarrollo)
 
-Durante el desarrollo el esquema se genera con `ddl-auto=update`; todavía no hay
-migraciones Flyway (se incorporan en el módulo M11). Para recrear todo desde
-cero:
+El esquema lo gobierna Flyway. Para recrear todo desde cero:
 
 ```bash
 docker compose down -v          # -v elimina el volumen de PostgreSQL
 docker compose up -d --build
 ```
+
+Al arrancar de nuevo, Flyway aplica `V1__esquema_inicial.sql` y, en desarrollo,
+`V2__datos_demo.sql`.
 
 ## Ejecución local del backend
 

@@ -1463,7 +1463,7 @@ Diferido y documentado como limitación:
 3. A partir de ahí, el endpoint responde `403`.
 4. El `ADMIN` crea docentes, secretarias y la estructura del año.
 
-> En desarrollo, `db/seed/V2__datos_demo.sql` ya crea los cinco actores y un escenario mínimo; las credenciales están en `CREDENCIALES.md`.
+> En desarrollo, `db/seed/V2__datos_demo.sql` ya crea los cinco actores y un escenario mínimo; las credenciales están en `docs/CREDENCIALES.md`.
 
 ### 6.2. Preparación de un año escolar
 
@@ -1562,7 +1562,7 @@ src/main/resources/db/seed/
 - Ningún cambio de esquema se hace a mano en producción.
 - Los índices, checks y constraints viven en el SQL de la migración.
 - La migración se prueba desde cero sobre Testcontainers y sobre una BD vacía antes de desplegar.
-- Las contraseñas de los datos demo se documentan en `CREDENCIALES.md`; no se cargan en producción.
+- Las contraseñas de los datos demo se documentan en `docs/CREDENCIALES.md`; no se cargan en producción.
 
 ### 7.3. Convenciones de esquema
 
@@ -1848,7 +1848,7 @@ Un módulo se considera terminado cuando:
 - El perfil `test` carga solo el esquema; la suite completa sigue en 252 tests.
 - Docker corre como usuario non-root y tiene `HEALTHCHECK` contra `/actuator/health`; Actuator expone únicamente `health` y lo deja público para Docker/CI.
 - Verificado con la imagen real: arranca como `educa360`, aplica V1+V2 y queda `healthy`; el login demo y los endpoints protegidos responden `200`/`401` según corresponda.
-- Las credenciales demo se documentan en `CREDENCIALES.md`.
+- Las credenciales demo se documentan en `docs/CREDENCIALES.md`.
 - Refresh tokens, rate limiting distribuido, backups y métricas quedan documentados como limitaciones.
 
 ### v3.4 — 2026-11-04 (M10 implementado)

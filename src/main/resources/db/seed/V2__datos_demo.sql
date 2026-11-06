@@ -6,7 +6,7 @@
 -- una asistencia. Así cada rol tiene algo que consultar al iniciar sesión.
 --
 -- Las contraseñas están hasheadas con BCrypt (strength 10). Las credenciales
--- en claro están documentadas en CREDENCIALES.md.
+-- en claro están documentadas en docs/CREDENCIALES.md.
 --
 -- En producción NO se debe cargar esta migración:
 --   FLYWAY_LOCATIONS=classpath:db/migration
