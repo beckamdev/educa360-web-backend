@@ -66,6 +66,7 @@ class MaterialServiceTest {
     @Mock private MatriculaService matriculaService;
     @Mock private StorageService storageService;
     @Mock private ArchivoValidator archivoValidator;
+    @Mock private NotificacionService notificacionService;
 
     private MaterialService servicio;
     private User userDocente;
@@ -84,7 +85,7 @@ class MaterialServiceTest {
         servicio = new MaterialService(materialRepository, cursoRepository,
                 contenidoRepository, docenteRepository, userRepository,
                 estudianteRepository, apoderadoRepository, vinculoRepository,
-                matriculaService, storageService, archivoValidator);
+                matriculaService, storageService, archivoValidator, notificacionService);
 
         userDocente = user("dana@educa360.pe", User.Role.DOCENTE, "Dana", "20000001");
         docente = new Docente(userDocente, "Licenciada");

@@ -101,6 +101,9 @@ class JustificacionServiceTest {
     @Mock
     private ArchivoValidator archivoValidator;
 
+    @Mock
+    private NotificacionService notificacionService;
+
     private User userApoderado;
     private Apoderado apoderado;
     private User userAlumno;
@@ -136,7 +139,7 @@ class JustificacionServiceTest {
         servicio = new JustificacionService(ticketRepository, asistenciaRepository,
                 apoderadoRepository, vinculoRepository, matriculaRepository, horarioRepository,
                 secretariaRepository, anioRepository, userRepository,
-                storageService, archivoValidator,
+                storageService, archivoValidator, notificacionService,
                 Clock.fixed(Instant.parse("2026-03-10T10:00:00Z"), ZONA));
     }
 

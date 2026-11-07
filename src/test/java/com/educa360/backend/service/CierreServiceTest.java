@@ -83,6 +83,7 @@ class CierreServiceTest {
     @Mock private ApoderadoEstudianteRepository vinculoRepository;
     @Mock private UserRepository userRepository;
     @Mock private MatriculaService matriculaService;
+    @Mock private NotificacionService notificacionService;
 
     private CierreService servicio;
 
@@ -104,7 +105,8 @@ class CierreServiceTest {
         servicio = new CierreService(anioRepository, bimestreRepository,
                 seccionRepository, matriculaRepository, cursoRepository,
                 calificacionRepository, asistenciaRepository, estudianteRepository,
-                apoderadoRepository, vinculoRepository, userRepository, matriculaService);
+                apoderadoRepository, vinculoRepository, userRepository, matriculaService,
+                notificacionService);
 
         anio = new AnioEscolar(2026, "Año Escolar 2026", LocalDate.of(2026, 3, 2));
         anio.setId(10L);

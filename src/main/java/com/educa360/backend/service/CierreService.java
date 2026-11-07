@@ -85,6 +85,7 @@ public class CierreService {
     private final ApoderadoEstudianteRepository vinculoRepository;
     private final UserRepository userRepository;
     private final MatriculaService matriculaService;
+    private final NotificacionService notificacionService;
 
     public CierreService(AnioEscolarRepository anioRepository,
                          BimestreRepository bimestreRepository,
@@ -97,7 +98,8 @@ public class CierreService {
                          ApoderadoRepository apoderadoRepository,
                          ApoderadoEstudianteRepository vinculoRepository,
                          UserRepository userRepository,
-                         MatriculaService matriculaService) {
+                         MatriculaService matriculaService,
+                         NotificacionService notificacionService) {
         this.anioRepository = anioRepository;
         this.bimestreRepository = bimestreRepository;
         this.seccionRepository = seccionRepository;
@@ -110,6 +112,7 @@ public class CierreService {
         this.vinculoRepository = vinculoRepository;
         this.userRepository = userRepository;
         this.matriculaService = matriculaService;
+        this.notificacionService = notificacionService;
     }
 
     // ==================== Cierre anual ====================
@@ -156,6 +159,7 @@ public class CierreService {
 
         anio.setEstado(AnioEscolar.Estado.CERRADO);
         anioRepository.save(anio);
+        notificacionService.notificarCierre(anio);
         return calcularCierre(anio);
     }
 

@@ -63,6 +63,7 @@ public class MaterialService {
     private final MatriculaService matriculaService;
     private final StorageService storageService;
     private final ArchivoValidator archivoValidator;
+    private final NotificacionService notificacionService;
 
     public MaterialService(MaterialClaseRepository materialRepository,
                            CursoRepository cursoRepository,
@@ -74,7 +75,8 @@ public class MaterialService {
                            ApoderadoEstudianteRepository vinculoRepository,
                            MatriculaService matriculaService,
                            StorageService storageService,
-                           ArchivoValidator archivoValidator) {
+                           ArchivoValidator archivoValidator,
+                           NotificacionService notificacionService) {
         this.materialRepository = materialRepository;
         this.cursoRepository = cursoRepository;
         this.contenidoRepository = contenidoRepository;
@@ -86,6 +88,7 @@ public class MaterialService {
         this.matriculaService = matriculaService;
         this.storageService = storageService;
         this.archivoValidator = archivoValidator;
+        this.notificacionService = notificacionService;
     }
 
     // ==================== Docente ====================
@@ -177,6 +180,7 @@ public class MaterialService {
                                                boolean publicado) {
         Docente docente = docenteDe(email);
         MaterialClase material = materialDelDocente(docente, materialId);
+        boolean estabaPublicado = material.isPublicado();
 
         if (publicado) {
             if (!material.isPublicado()) {
@@ -185,7 +189,13 @@ public class MaterialService {
         } else {
             material.despublicar();
         }
-        return MaterialResponse.desde(materialRepository.save(material));
+        MaterialClase guardado = materialRepository.save(material);
+
+        if (publicado && !estabaPublicado) {
+            notificacionService.notificarMaterial(guardado.getCurso(),
+                    guardado.getTitulo(), guardado.getId());
+        }
+        return MaterialResponse.desde(guardado);
     }
 
     @Transactional

@@ -109,6 +109,9 @@ class AsistenciaServiceTest {
     @Mock
     private TicketJustificacionRepository ticketRepository;
 
+    @Mock
+    private NotificacionService notificacionService;
+
     private User userDocente;
     private Docente docente;
     private AnioEscolar anio;
@@ -425,7 +428,7 @@ class AsistenciaServiceTest {
         return new AsistenciaService(asistenciaRepository, cursoRepository, horarioRepository,
                 bimestreRepository, docenteRepository, userRepository, estudianteRepository,
                 matriculaRepository, matriculaService, apoderadoRepository, vinculoRepository,
-                ticketRepository, Clock.fixed(instante, ZONA));
+                ticketRepository, notificacionService, Clock.fixed(instante, ZONA));
     }
 
     private void prepararDocenteYClase() {

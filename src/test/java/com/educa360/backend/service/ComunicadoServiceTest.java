@@ -73,6 +73,7 @@ class ComunicadoServiceTest {
     @Mock private ApoderadoRepository apoderadoRepository;
     @Mock private ApoderadoEstudianteRepository vinculoRepository;
     @Mock private MatriculaService matriculaService;
+    @Mock private NotificacionService notificacionService;
 
     private ComunicadoService servicio;
 
@@ -98,7 +99,7 @@ class ComunicadoServiceTest {
         servicio = new ComunicadoService(comunicadoRepository, userRepository,
                 anioRepository, seccionRepository, cursoRepository, docenteRepository,
                 secretariaRepository, estudianteRepository, apoderadoRepository,
-                vinculoRepository, matriculaService);
+                vinculoRepository, matriculaService, notificacionService);
 
         anio = new AnioEscolar(2026, "Año Escolar 2026", LocalDate.of(2026, 3, 2));
         anio.setId(10L);

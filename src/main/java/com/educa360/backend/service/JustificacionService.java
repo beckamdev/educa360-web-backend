@@ -76,6 +76,7 @@ public class JustificacionService {
     private final UserRepository userRepository;
     private final StorageService storageService;
     private final ArchivoValidator archivoValidator;
+    private final NotificacionService notificacionService;
     private final Clock clock;
 
     @Autowired
@@ -89,10 +90,12 @@ public class JustificacionService {
                                 AnioEscolarRepository anioRepository,
                                 UserRepository userRepository,
                                 StorageService storageService,
-                                ArchivoValidator archivoValidator) {
+                                ArchivoValidator archivoValidator,
+                                NotificacionService notificacionService) {
         this(ticketRepository, asistenciaRepository, apoderadoRepository, vinculoRepository,
                 matriculaRepository, horarioRepository, secretariaRepository, anioRepository,
-                userRepository, storageService, archivoValidator, Clock.systemDefaultZone());
+                userRepository, storageService, archivoValidator, notificacionService,
+                Clock.systemDefaultZone());
     }
 
     /** Visible para tests: inyecta un reloj falso. */
@@ -107,6 +110,7 @@ public class JustificacionService {
                          UserRepository userRepository,
                          StorageService storageService,
                          ArchivoValidator archivoValidator,
+                         NotificacionService notificacionService,
                          Clock clock) {
         this.ticketRepository = ticketRepository;
         this.asistenciaRepository = asistenciaRepository;
@@ -119,6 +123,7 @@ public class JustificacionService {
         this.userRepository = userRepository;
         this.storageService = storageService;
         this.archivoValidator = archivoValidator;
+        this.notificacionService = notificacionService;
         this.clock = clock;
     }
 
@@ -289,7 +294,9 @@ public class JustificacionService {
             aplicarJustificacion(ticket);
         }
 
-        return TicketResponse.desde(ticketRepository.save(ticket));
+        TicketJustificacion guardado = ticketRepository.save(ticket);
+        notificacionService.notificarTicketResuelto(guardado);
+        return TicketResponse.desde(guardado);
     }
 
     /**

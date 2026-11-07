@@ -86,6 +86,7 @@ public class AsistenciaService {
     private final ApoderadoRepository apoderadoRepository;
     private final ApoderadoEstudianteRepository vinculoRepository;
     private final TicketJustificacionRepository ticketRepository;
+    private final NotificacionService notificacionService;
     private final Clock clock;
 
     @Autowired
@@ -100,11 +101,12 @@ public class AsistenciaService {
                              MatriculaService matriculaService,
                              ApoderadoRepository apoderadoRepository,
                              ApoderadoEstudianteRepository vinculoRepository,
-                             TicketJustificacionRepository ticketRepository) {
+                             TicketJustificacionRepository ticketRepository,
+                             NotificacionService notificacionService) {
         this(asistenciaRepository, cursoRepository, horarioRepository, bimestreRepository,
                 docenteRepository, userRepository, estudianteRepository, matriculaRepository,
                 matriculaService, apoderadoRepository, vinculoRepository, ticketRepository,
-                Clock.systemDefaultZone());
+                notificacionService, Clock.systemDefaultZone());
     }
 
     /** Visible para tests: inyecta un reloj falso. */
@@ -120,6 +122,7 @@ public class AsistenciaService {
                       ApoderadoRepository apoderadoRepository,
                       ApoderadoEstudianteRepository vinculoRepository,
                       TicketJustificacionRepository ticketRepository,
+                      NotificacionService notificacionService,
                       Clock clock) {
         this.asistenciaRepository = asistenciaRepository;
         this.cursoRepository = cursoRepository;
@@ -133,6 +136,7 @@ public class AsistenciaService {
         this.apoderadoRepository = apoderadoRepository;
         this.vinculoRepository = vinculoRepository;
         this.ticketRepository = ticketRepository;
+        this.notificacionService = notificacionService;
         this.clock = clock;
     }
 
@@ -337,6 +341,9 @@ public class AsistenciaService {
                     + " ya está JUSTIFICADA por un ticket aprobado");
         }
 
+        Asistencia.Estado estadoAnterior = existente != null
+                ? existente.getEstado()
+                : null;
         Asistencia asistencia = existente != null
                 ? existente
                 : new Asistencia(matricula, bloque, fecha);
@@ -363,7 +370,14 @@ public class AsistenciaService {
 
         asistencia.setObservacion(item.observacion());
         asistencia.setRegistradoPor(docente);
-        asistenciaRepository.save(asistencia);
+        Asistencia guardada = asistenciaRepository.save(asistencia);
+
+        boolean aviso = guardada.getEstado() == Asistencia.Estado.FALTA
+                || guardada.getEstado() == Asistencia.Estado.TARDANZA;
+        if (aviso && guardada.getEstado() != estadoAnterior) {
+            notificacionService.notificarAsistencia(matricula, guardada.getEstado(),
+                    fecha, bloque.getCurso().getMateria().getNombre(), guardada.getId());
+        }
     }
 
     /** Ticket aprobado que cubre la falta de esta matrícula, bloque y fecha. */

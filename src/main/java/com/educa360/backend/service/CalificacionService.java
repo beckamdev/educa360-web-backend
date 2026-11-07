@@ -84,6 +84,7 @@ public class CalificacionService {
     private final MatriculaService matriculaService;
     private final ApoderadoRepository apoderadoRepository;
     private final ApoderadoEstudianteRepository vinculoRepository;
+    private final NotificacionService notificacionService;
 
     public CalificacionService(CalificacionRepository calificacionRepository,
                                UnidadRepository unidadRepository,
@@ -95,7 +96,8 @@ public class CalificacionService {
                                MatriculaRepository matriculaRepository,
                                MatriculaService matriculaService,
                                ApoderadoRepository apoderadoRepository,
-                               ApoderadoEstudianteRepository vinculoRepository) {
+                               ApoderadoEstudianteRepository vinculoRepository,
+                               NotificacionService notificacionService) {
         this.calificacionRepository = calificacionRepository;
         this.unidadRepository = unidadRepository;
         this.cursoRepository = cursoRepository;
@@ -107,6 +109,7 @@ public class CalificacionService {
         this.matriculaService = matriculaService;
         this.apoderadoRepository = apoderadoRepository;
         this.vinculoRepository = vinculoRepository;
+        this.notificacionService = notificacionService;
     }
 
     // ==================== Docente: hoja de la unidad ====================
@@ -155,11 +158,23 @@ public class CalificacionService {
             Calificacion calificacion = calificacionRepository
                     .findByMatriculaIdAndUnidadIdAndCriterio(
                             matricula.getId(), unidad.getId(), criterio)
-                    .orElseGet(() -> new Calificacion(matricula, unidad, criterio));
+                    .orElse(null);
+            boolean nueva = calificacion == null;
+            if (nueva) {
+                calificacion = new Calificacion(matricula, unidad, criterio);
+            }
+            BigDecimal notaAnterior = calificacion.getNota();
 
             calificacion.setNota(item.nota());
             calificacion.setRegistradoPor(docente);
-            calificacionRepository.save(calificacion);
+            Calificacion guardada = calificacionRepository.save(calificacion);
+
+            if (nueva || notaAnterior == null
+                    || notaAnterior.compareTo(item.nota()) != 0) {
+                notificacionService.notificarCalificacion(matricula,
+                        unidad.getCurso().getMateria().getNombre(), criterio,
+                        item.nota(), guardada.getId());
+            }
         }
 
         calificacionRepository.flush();
@@ -176,7 +191,14 @@ public class CalificacionService {
             throw new NotFoundException("La calificación " + calificacionId + " no existe");
         }
         validarBimestreAbierto(calificacion.getUnidad());
+
+        Matricula matricula = calificacion.getMatricula();
+        String materia = calificacion.getUnidad().getCurso().getMateria().getNombre();
+        String criterio = calificacion.getCriterio();
+
         calificacionRepository.delete(calificacion);
+        notificacionService.notificarCalificacionEliminada(
+                matricula, materia, criterio, calificacionId);
     }
 
     // ==================== Docente y ADMIN: acta del curso ====================

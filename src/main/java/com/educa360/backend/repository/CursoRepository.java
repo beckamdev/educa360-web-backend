@@ -16,5 +16,8 @@ public interface CursoRepository extends JpaRepository<Curso, Long> {
 
     List<Curso> findBySeccionId(Long seccionId);
 
+    /** Cursos de todas las secciones de un año (audiencia de comunicados generales). */
+    List<Curso> findBySeccionAnioId(Long anioId);
+
     List<Curso> findByDocenteId(Long docenteId);
 }

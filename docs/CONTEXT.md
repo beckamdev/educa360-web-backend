@@ -1,7 +1,7 @@
 # Contexto del Proyecto: Educa360 (Backend)
 
-> **Documento vivo — v3 (simplificado)**
-> Última actualización: 2026-11-04
+> **Documento vivo — v3.6 (simplificado)**
+> Última actualización: 2026-11-06
 > Este archivo es la **fuente de verdad** del dominio, las reglas de negocio y el roadmap.
 > Si el código y este documento difieren, se corrigen ambos en el mismo cambio.
 
@@ -42,6 +42,7 @@
 | **Ticket** | Solicitud de justificación de inasistencia creada por el apoderado y resuelta por Secretaría. |
 | **Material** | Archivo o enlace publicado por el docente para un curso, opcionalmente ligado a un contenido. |
 | **Comunicado** | Mensaje del docente a su sección, de Secretaría a toda la institución o del ADMIN a toda la institución o a una sección. |
+| **Notificación** | Aviso persistente dirigido a un usuario concreto sobre un evento del sistema (comunicado, ticket, nota, asistencia, material o cierre). Tiene estado leída/no leída y se empuja por WebSocket. No es un `Comunicado`: el comunicado es el contenido y la notificación es el aviso al destinatario. |
 
 ### 0.2. Estados de madurez
 
@@ -69,8 +70,10 @@
 - Aplicación móvil nativa.
 - Primaria o inicial.
 - Firma digital de actas.
-- Notificaciones push o correo transaccional.
+- Notificaciones push nativas (APNs/FCM) o correo transaccional.
 - Integración con sistemas externos del Ministerio.
+
+> Las **notificaciones internas persistentes y el push por WebSocket sí forman parte de la v3** (M12). Lo diferido es el envío a dispositivos o correo.
 
 ### 1.2. Principios de diseño
 
@@ -93,6 +96,7 @@
 | Lenguaje | Java 25 |
 | Framework | Spring Boot 4.1.1 (WebMVC, Security, Data JPA) |
 | Autenticación | JWT stateless + RBAC |
+| Tiempo real | WebSocket + STOMP (SockJS opcional para navegadores) |
 | Base de datos | PostgreSQL 17 |
 | Migraciones | Flyway **solo en la fase final**; durante el desarrollo se recrea la BD |
 | Almacenamiento | Supabase Storage (buckets privados) |
@@ -616,6 +620,31 @@ Reglas:
 - Un año `CERRADO` es solo lectura: crear, editar o dar de baja responde `409`.
 - No se elimina; se desactiva (`activo=false`).
 
+#### 3.2.9. Notificaciones
+
+##### `Notificacion` ✅ — tabla `notificaciones`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `usuario_id` | FK → `User` | obligatoria; destinatario del aviso |
+| `tipo` | enum `TipoNotificacion` | `COMUNICADO`, `TICKET_RESUELTO`, `CALIFICACION`, `ASISTENCIA`, `MATERIAL`, `CIERRE` |
+| `titulo` | String(120) | obligatorio; texto corto |
+| `mensaje` | String(500) | obligatorio; detalle del evento |
+| `referencia_id` | Long | opcional; id del comunicado, ticket, matrícula, asistencia, material o año |
+| `leida` | boolean | por defecto `false` |
+| `leida_at` | LocalDateTime | se fija al marcar como leída; `null` mientras no se lea |
+
+Relaciones: **N—1** `User` (destinatario).
+
+Reglas:
+- Es una entidad **distinta** de `Comunicado`. Un comunicado puede generar notificaciones, pero la notificación es el aviso dirigido a un usuario.
+- La identidad del destinatario sale siempre del token en la API; nunca del request.
+- El WebSocket solo acelera la entrega. La BD es la fuente de verdad: un usuario desconectado ve sus notificaciones al consultar la API.
+- La notificación se guarda en la misma transacción del evento y se empuja **después del commit**; si la transacción falla, no se notifica nada.
+- Los destinatarios se deduplican por `usuario_id`.
+- No se elimina; el historial es la propia tabla.
+- `leida_at` solo se rellena la primera vez; marcar dos veces es idempotente.
+
 ### 3.3. Restricciones e índices de base de datos
 
 Las unicidades simples se declaran con JPA (`@Table(uniqueConstraints=...)`). Las unicidades parciales y los `CHECK` se validan en servicio durante el desarrollo y se materializan en Flyway al final (M11), porque JPA no expresa índices parciales.
@@ -645,6 +674,8 @@ Las unicidades simples se declaran con JPA (`@Table(uniqueConstraints=...)`). La
 | `calificaciones` | check `nota >= 0 and nota <= 20` |
 | `horario_bloques` | check `hora_fin > hora_inicio` |
 | `tickets_justificacion` | unique parcial `(estudiante_id, fecha_inasistencia, coalesce(bloque_id, 0))` where `estado in ('PENDIENTE','APROBADO')` |
+| `notificaciones` | FK `usuario_id` → `users` con `ON DELETE CASCADE`; índice `(usuario_id, leida)` |
+| `notificaciones` | check `tipo in ('COMUNICADO','TICKET_RESUELTO','CALIFICACION','ASISTENCIA','MATERIAL','CIERRE')` |
 
 Reglas de integridad que se validan en servicio:
 - La sección de `Matricula` pertenece al mismo año que `AnioEscolar`.
@@ -775,7 +806,7 @@ EGRESADO   → (terminal)
 4. **No hay actas inmutables:** los promedios se calculan por consulta; un snapshot de actas queda diferido.
 5. **No hay entidad `Aula`:** el aula es texto libre en `Seccion`.
 6. **No hay primaria ni inicial:** grados 1 a 5 de secundaria.
-7. **No hay notificaciones push/correo:** los comunicados se consultan en la API.
+7. **No hay push nativo ni correo:** las notificaciones internas se persisten y se empujan por WebSocket mientras el usuario está conectado; sin conexión se consultan por REST. El broker STOMP es en memoria, así que el push no se comparte entre varias instancias.
 
 ---
 
@@ -835,6 +866,7 @@ EGRESADO   → (terminal)
 | Tickets | — | Resolver/leer | — | — | Crear/leer los suyos |
 | Materiales | Lectura (incluye borradores) | — | CRUD de sus cursos | Lectura publicada | Lectura publicada de hijos |
 | Comunicados | CRUD general/sección | CRUD general | CRUD de sus secciones | Lectura | Lectura de hijos |
+| Notificaciones | Propias | Propias | Propias | Propias | Propias |
 | Cierre y reportes | CRUD | Reportes de alumnos | Actas de sus cursos | Boleta propia | Boleta de hijos |
 
 ### 4.3. Reglas de ownership
@@ -1454,6 +1486,61 @@ Diferido y documentado como limitación:
 
 ---
 
+### Módulo 12 — Notificaciones persistentes y tiempo real ✅
+
+**Objetivo:** avisar a cada usuario de los eventos que le afectan, con historial persistente y entrega inmediata por WebSocket.
+
+**Entidades:** `Notificacion` (nueva) y enum `TipoNotificacion`.
+
+**Reglas:**
+- `Notificacion` es independiente de `Comunicado`: el comunicado es el contenido y la notificación es el aviso al destinatario.
+- La notificación se persiste en la misma transacción del evento; el push se emite **después del commit**.
+- La identidad del destinatario sale del token; el cliente nunca elige de quién son las notificaciones.
+- Los destinatarios se deduplican por usuario.
+- Un usuario solo puede leer y marcar sus propias notificaciones; una ajena responde `404`.
+- La notificación no se elimina; el historial completo queda en BD.
+- El broker STOMP es en memoria: con una instancia el push funciona; con varias haría falta Redis u otro broker.
+
+**Eventos y destinatarios:**
+
+| Evento | Punto de disparo | Destinatarios |
+|---|---|---|
+| Comunicado publicado | `ComunicadoService.crearAdmin/crearSecretaria/crearDocente` | General: alumnos con matrícula del año + sus apoderados + docentes con cursos del año. Por sección: alumnos de la sección + sus apoderados + docentes de la sección y tutor. Se excluye al autor. |
+| Ticket resuelto | `JustificacionService.resolver` | Alumno del ticket y sus apoderados activos. |
+| Calificación registrada o eliminada | `CalificacionService.registrar/eliminar` | Alumno de la matrícula y sus apoderados activos. |
+| Falta o tardanza registrada | `AsistenciaService.registrar` | Alumno de la matrícula y sus apoderados activos. Solo cuando el estado cambia a `FALTA` o `TARDANZA`. |
+| Material publicado | `MaterialService.cambiarPublicacion` | Alumnos con matrícula en la sección del curso. Solo en la transición de no publicado a publicado. |
+| Cierre anual | `CierreService.cerrar` | Alumnos con matrícula del año y sus apoderados activos. |
+
+**Endpoints REST:**
+
+| Método y ruta | Rol | Descripción |
+|---|---|---|
+| `GET /api/v1/notificaciones?leida=` | Autenticado | Mis notificaciones, opcionalmente filtradas por leída/no leída |
+| `GET /api/v1/notificaciones/contador` | Autenticado | `{"noLeidas": n}` |
+| `PATCH /api/v1/notificaciones/{id}/leida` | Autenticado | Marca una propia como leída (idempotente) |
+| `PATCH /api/v1/notificaciones/leidas` | Autenticado | Marca todas las propias como leídas |
+
+**WebSocket:**
+- Endpoint nativo STOMP: `/ws`.
+- Fallback SockJS para navegadores: `/ws-sockjs`.
+- El cliente envía el JWT en el header `Authorization: Bearer <token>` del frame STOMP `CONNECT`.
+- `WebSocketAuthChannelInterceptor` valida el token y asocia el usuario a la sesión; sin token válido el `CONNECT` se rechaza.
+- El cliente se suscribe a `/user/queue/notificaciones`.
+- El backend envía con `SimpMessagingTemplate.convertAndSendToUser(email, "/queue/notificaciones", payload)`.
+- `/ws/**` y `/ws-sockjs/**` son públicos en `SecurityConfig`; la autenticación real ocurre en el frame `CONNECT`.
+
+**Criterios de aceptación:**
+- Crear un comunicado genera una notificación por destinatario y la empuja a los conectados.
+- Un usuario desconectado igual ve la notificación al consultar `GET /api/v1/notificaciones`.
+- Un usuario no ve ni marca notificaciones ajenas (`404`).
+- El contador refleja solo las no leídas y baja al marcar una o todas.
+- Marcar una notificación ya leída no falla ni cambia `leida_at`.
+- Un `CONNECT` sin token o con token inválido/expirado se rechaza.
+- Un usuario no recibe por WebSocket eventos destinados a otro.
+
+---
+
 ## 6. Flujos principales
 
 ### 6.1. Bootstrap del sistema
@@ -1526,6 +1613,15 @@ Diferido y documentado como limitación:
 6. Se marca `EGRESADO` a los alumnos de 5° aprobados.
 7. El año queda `CERRADO` y solo lectura.
 
+### 6.9. Entrega de notificaciones
+
+1. Ocurre un evento de negocio (comunicado, ticket, nota, asistencia, material o cierre).
+2. El servicio resuelve los destinatarios y `NotificacionService` guarda una `Notificacion` por usuario dentro de la misma transacción.
+3. Al confirmar la transacción, un callback `afterCommit` envía cada notificación a `/user/{email}/queue/notificaciones`.
+4. Si el usuario está conectado, la recibe al instante; si no, queda persistida y la ve al abrir la app.
+5. El frontend actualiza el contador con `GET /api/v1/notificaciones/contador` o al recibir el evento.
+6. Al abrir la bandeja, marca una o todas como leídas.
+
 ---
 
 ## 7. Base de datos y migraciones
@@ -1553,9 +1649,12 @@ docker compose up -d --build
 ```text
 src/main/resources/db/migration/
   V1__esquema_inicial.sql
+  V3__notificaciones.sql
 src/main/resources/db/seed/
   V2__datos_demo.sql
 ```
+
+> `V2` es la semilla de desarrollo y vive en `db/seed`; `V3` es la primera migración de esquema posterior a `V1`. Los números de versión son globales: no se reutiliza `V2` para esquema.
 
 - Una migración ya aplicada **no se edita**; se agrega una nueva versión (`V3__...`).
 - `ddl-auto=validate` en todos los entornos: si una entidad no coincide con el esquema, la aplicación no arranca.
@@ -1725,7 +1824,7 @@ Reglas:
 
 ## 11. Estado actual y roadmap
 
-### 11.1. Estado actual (tras M11)
+### 11.1. Estado actual (tras M12)
 
 | Módulo | Estado | Nota |
 |---|---|---|
@@ -1741,6 +1840,7 @@ Reglas:
 | M9 Comunicados | ✅ | Generales y por sección, autoría, visibilidad y baja lógica |
 | M10 Cierre y reportes | ✅ | Cierre anual, boletas, historial y reportes |
 | M11 Endurecimiento y Flyway | ✅ | Flyway, `ddl-auto=validate`, Docker non-root, health check y CI |
+| M12 Notificaciones y WebSocket | ✅ | `Notificacion` persistente, REST de bandeja/contador y push STOMP por usuario |
 
 ### 11.2. Orden de implementación
 
@@ -1756,6 +1856,7 @@ Reglas:
 10. M9: comunicados.
 11. M10: cierre y reportes.
 12. M11: endurecimiento y Flyway.
+13. M12: notificaciones persistentes y WebSocket.
 
 ### 11.3. Definición de “módulo terminado”
 
@@ -1815,6 +1916,7 @@ Un módulo se considera terminado cuando:
 | 38 | M9: `ADMIN` gestiona cualquier comunicado; `SECRETARIA` y `DOCENTE` solo los propios. `SECRETARIA` publica solo generales; `DOCENTE` solo en secciones donde dicta clase o es tutor. Contenido máximo 5000 caracteres; año `CERRADO` es solo lectura (`409`); baja lógica (`activo=false`). |
 | 39 | M10: el cierre exige al menos un bimestre y todos `CERRADO`; solo cuentan notas de unidades `PUBLICADA`. `APROBADO` exige todos los cursos con promedio anual ≥ `11.00` y asistencia global ≥ `70%`; sin registros de asistencia el porcentaje es `0.00%`. `RETIRADO` se conserva y no bloquea. Al aprobar 5° grado, el alumno pasa a `EGRESADO`. El cierre es idempotente y los reportes validan que bimestre y sección pertenezcan al año. |
 | 40 | M11: Flyway gobierna el esquema y Hibernate valida (`ddl-auto=validate`). Los datos demo viven en `db/seed` y solo se cargan si `FLYWAY_LOCATIONS` incluye esa ruta; en producción se usa solo `classpath:db/migration`. Las migraciones aplicadas no se editan. |
+| 41 | M12: `Notificacion` es una entidad separada de `Comunicado`; un comunicado puede generar notificaciones. Se persisten antes del push y se envían después del commit. El destinatario sale del token. El WebSocket usa STOMP con JWT en el frame `CONNECT` y destino `/user/queue/notificaciones`; el broker es en memoria y no se comparte entre instancias. |
 
 ### 12.2. Supuestos operativos
 
@@ -1831,7 +1933,7 @@ Un módulo se considera terminado cuando:
 4. No hay actas inmutables.
 5. No hay entidad `Aula`.
 6. No hay primaria ni inicial.
-7. No hay notificaciones push/correo.
+7. No hay push nativo (APNs/FCM) ni correo; las notificaciones internas se persisten y se empujan por WebSocket. El broker STOMP es en memoria y no sirve para varias instancias sin Redis.
 8. El rate limiting de login es en memoria; no sirve con múltiples instancias.
 9. No hay refresh tokens: el JWT dura 24 h y debe renovarse iniciando sesión.
 10. No hay backups automáticos ni métricas/alertas; el health check es básico.
@@ -1839,6 +1941,18 @@ Un módulo se considera terminado cuando:
 ---
 
 ## 13. Registro de cambios
+
+### v3.6 — 2026-11-06 (M12 implementado)
+
+- M12 Notificaciones persistentes y tiempo real queda ✅: nueva entidad `Notificacion` y enum `TipoNotificacion`.
+- Se agregan `GET /api/v1/notificaciones`, `GET /api/v1/notificaciones/contador`, `PATCH /api/v1/notificaciones/{id}/leida` y `PATCH /api/v1/notificaciones/leidas`; la identidad sale del token y una notificación ajena responde `404`.
+- `NotificacionService` centraliza la resolución y deduplicación de destinatarios y el envío después del commit.
+- Se integran los eventos de M5–M10: comunicados, tickets resueltos, calificaciones, faltas/tardanzas, materiales publicados y cierre anual.
+- WebSocket STOMP en `/ws` (nativo) y `/ws-sockjs` (fallback); el JWT viaja en el header `Authorization` del frame `CONNECT`; el cliente se suscribe a `/user/queue/notificaciones`.
+- `SecurityConfig` deja públicos `/ws/**` y `/ws-sockjs/**`; la autenticación real la hace `WebSocketAuthChannelInterceptor`.
+- Migración `V3__notificaciones.sql`; `V1` y `V2` no se editan.
+- Se documenta que el broker STOMP es en memoria y que el push nativo/correo sigue fuera de alcance.
+- Tests: `NotificacionServiceTest`, `NotificacionApiTest` y `WebSocketAuthChannelInterceptorTest`; suite total actualizada.
 
 ### v3.5 — 2026-11-04 (M11 implementado)
 

@@ -64,6 +64,7 @@ public class ComunicadoService {
     private final ApoderadoRepository apoderadoRepository;
     private final ApoderadoEstudianteRepository vinculoRepository;
     private final MatriculaService matriculaService;
+    private final NotificacionService notificacionService;
 
     public ComunicadoService(ComunicadoRepository comunicadoRepository,
                              UserRepository userRepository,
@@ -75,7 +76,8 @@ public class ComunicadoService {
                              EstudianteRepository estudianteRepository,
                              ApoderadoRepository apoderadoRepository,
                              ApoderadoEstudianteRepository vinculoRepository,
-                             MatriculaService matriculaService) {
+                             MatriculaService matriculaService,
+                             NotificacionService notificacionService) {
         this.comunicadoRepository = comunicadoRepository;
         this.userRepository = userRepository;
         this.anioRepository = anioRepository;
@@ -87,6 +89,7 @@ public class ComunicadoService {
         this.apoderadoRepository = apoderadoRepository;
         this.vinculoRepository = vinculoRepository;
         this.matriculaService = matriculaService;
+        this.notificacionService = notificacionService;
     }
 
     // ==================== ADMIN ====================
@@ -126,7 +129,9 @@ public class ComunicadoService {
 
         Comunicado comunicado = new Comunicado(autor, anio, seccion,
                 texto(datos.contenido()));
-        return ComunicadoResponse.desde(comunicadoRepository.save(comunicado));
+        Comunicado guardado = comunicadoRepository.save(comunicado);
+        notificacionService.notificarComunicado(guardado);
+        return ComunicadoResponse.desde(guardado);
     }
 
     @Transactional
@@ -179,7 +184,9 @@ public class ComunicadoService {
 
         Comunicado comunicado = new Comunicado(autor, anio, null,
                 texto(datos.contenido()));
-        return ComunicadoResponse.desde(comunicadoRepository.save(comunicado));
+        Comunicado guardado = comunicadoRepository.save(comunicado);
+        notificacionService.notificarComunicado(guardado);
+        return ComunicadoResponse.desde(guardado);
     }
 
     @Transactional
@@ -271,7 +278,9 @@ public class ComunicadoService {
 
         Comunicado comunicado = new Comunicado(docente.getUser(), anio, seccion,
                 texto(datos.contenido()));
-        return ComunicadoResponse.desde(comunicadoRepository.save(comunicado));
+        Comunicado guardado = comunicadoRepository.save(comunicado);
+        notificacionService.notificarComunicado(guardado);
+        return ComunicadoResponse.desde(guardado);
     }
 
     @Transactional

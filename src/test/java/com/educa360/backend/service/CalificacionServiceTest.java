@@ -97,6 +97,9 @@ class CalificacionServiceTest {
     @Mock
     private ApoderadoEstudianteRepository vinculoRepository;
 
+    @Mock
+    private NotificacionService notificacionService;
+
     private User userDocente;
     private Docente docente;
     private AnioEscolar anio;
@@ -126,7 +129,7 @@ class CalificacionServiceTest {
         servicio = new CalificacionService(calificacionRepository, unidadRepository,
                 cursoRepository, bimestreRepository, docenteRepository, userRepository,
                 estudianteRepository, matriculaRepository, matriculaService,
-                apoderadoRepository, vinculoRepository);
+                apoderadoRepository, vinculoRepository, notificacionService);
     }
 
     @Test

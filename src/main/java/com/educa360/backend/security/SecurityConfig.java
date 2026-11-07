@@ -65,6 +65,10 @@ public class SecurityConfig {
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         // Health check para Docker/CI: público y sin datos sensibles.
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        // Handshake WebSocket: público a nivel HTTP; el frame STOMP
+                        // CONNECT se autentica con JWT en WebSocketAuthChannelInterceptor.
+                        .requestMatchers("/ws", "/ws/**", "/ws-sockjs", "/ws-sockjs/**")
+                        .permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex

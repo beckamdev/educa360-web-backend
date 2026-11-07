@@ -47,7 +47,21 @@ Servicios:
 | API | http://localhost:8080 |
 | Swagger UI | http://localhost:8080/swagger-ui/index.html |
 | OpenAPI JSON | http://localhost:8080/v3/api-docs |
+| WebSocket STOMP | `ws://localhost:8080/ws` |
+| WebSocket SockJS | `http://localhost:8080/ws-sockjs` |
 | PostgreSQL | `127.0.0.1:5432` (solo accesible desde la máquina) |
+
+### Notificaciones en tiempo real
+
+El cliente se conecta a `/ws` (o `/ws-sockjs` como fallback) y envía el JWT en
+el header `Authorization` del frame STOMP `CONNECT`. Luego se suscribe a:
+
+```text
+/user/queue/notificaciones
+```
+
+Las notificaciones también quedan persistidas y se consultan por REST en
+`/api/v1/notificaciones`. Ver el Módulo 12 en [`docs/CONTEXT.md`](docs/CONTEXT.md).
 
 Comandos útiles:
 
@@ -99,8 +113,8 @@ docker compose down -v          # -v elimina el volumen de PostgreSQL
 docker compose up -d --build
 ```
 
-Al arrancar de nuevo, Flyway aplica `V1__esquema_inicial.sql` y, en desarrollo,
-`V2__datos_demo.sql`.
+Al arrancar de nuevo, Flyway aplica `V1__esquema_inicial.sql`,
+`V3__notificaciones.sql` y, en desarrollo, `V2__datos_demo.sql`.
 
 ## Ejecución local del backend
 
@@ -130,7 +144,7 @@ tests unitarios siguen ejecutándose.
 
 ```text
 src/main/java/com/educa360/backend/
-├── config/      # OpenAPI y configuración transversal
+├── config/      # OpenAPI, WebSocket y configuración transversal
 ├── controller/  # endpoints REST
 ├── dto/         # request/response
 ├── entity/      # entidades JPA (todas extienden Auditable)
