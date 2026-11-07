@@ -1,7 +1,10 @@
 target/
 .git/
-.env
-*.log
-docs/
+.gitignore
 .idea/
 .vscode/
+*.iml
+*.log
+.env
+README.md
+docs/
