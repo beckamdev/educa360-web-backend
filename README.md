@@ -1,50 +1,80 @@
-# Educa360 — Backend
+# Educa360 Backend
 
-API REST para la gestión académica de un colegio de **educación secundaria** (grados 1 a 5): usuarios y roles, catálogo académico (períodos, materias, secciones, cursos y horarios) y el núcleo de familias (estudiantes, matrículas y apoderados).
+API REST para la gestión académica del Colegio Nuestra Señora de Monserrat.
 
-Construida con **Spring Boot** y **PostgreSQL**, documentada con **Swagger** y cubierta por una suite de pruebas de integración que levanta una base de datos efímera con **Testcontainers**.
-
----
+El dominio y el roadmap viven en [`docs/CONTEXT.md`](docs/CONTEXT.md). Este README cubre
+solo el arranque técnico del proyecto.
 
 ## Stack
 
-| Capa | Tecnología |
+| Pieza | Versión |
 |---|---|
-| Lenguaje | Java 25 |
-| Framework | Spring Boot 4.1.1 (Spring Security, Spring Data JPA) |
-| Base de datos | PostgreSQL 17 |
-| Autenticación | JWT (bearer token) |
-| Documentación | OpenAPI / Swagger UI |
-| Empaquetado | Maven Wrapper (`./mvnw`) |
-| Despliegue | Docker Compose (backend + Postgres) |
-| Pruebas | JUnit 5 + MockMvc + Testcontainers |
-| CI | GitHub Actions (en cada push) |
+| Java | 25 |
+| Spring Boot | 4.1.1 |
+| PostgreSQL | 17 |
+| Maven | Wrapper incluido (`./mvnw`) |
+| Swagger / OpenAPI | springdoc 3.1.0 |
 
----
+## Requisitos
 
-## Puesta en marcha
+- **JDK 25** (`java -version` debe reportar 25).
+- **Docker** con **Docker Compose**.
+- No hace falta instalar Maven: se usa el wrapper.
 
-**Requisitos:** Docker y Docker Compose.
+Si tu `java` por defecto no es 25, exporta `JAVA_HOME` antes de los comandos
+Maven. Ejemplo en Linux:
 
 ```bash
-# 1) Configurar el entorno (el .env queda fuera de Git)
-cp .env.example .env
-#    - rellena POSTGRES_PASSWORD
-#    - genera el secreto JWT:  openssl rand -base64 48
-
-# 2) Levantar todo
-docker compose up -d
+export JAVA_HOME=/usr/lib/jvm/java-25-openjdk
+export PATH="$JAVA_HOME/bin:$PATH"
 ```
+
+## Arranque rápido con Docker
+
+```bash
+cp .env.example .env
+# Edita .env y define al menos POSTGRES_PASSWORD y APP_JWT_SECRET
+docker compose up -d --build
+```
+
+La primera vez, Flyway crea el esquema y carga los datos demo. Las cuentas de
+prueba están en [`docs/CREDENCIALES.md`](docs/CREDENCIALES.md).
+
+Servicios:
 
 | Servicio | URL |
 |---|---|
-| API | `http://localhost:8080` |
-| Swagger UI | `http://localhost:8080/swagger-ui/index.html` |
-| PostgreSQL | `127.0.0.1:5432` (sólo accesible desde la máquina) |
+| API | http://localhost:8080 |
+| Swagger UI | http://localhost:8080/swagger-ui/index.html |
+| OpenAPI JSON | http://localhost:8080/v3/api-docs |
+| WebSocket STOMP | `ws://localhost:8080/ws` |
+| WebSocket SockJS | `http://localhost:8080/ws-sockjs` |
+| PostgreSQL | `127.0.0.1:5432` (solo accesible desde la máquina) |
 
-### Primer usuario
+### Notificaciones en tiempo real
 
-La base de datos arranca vacía y **el primer registro crea la cuenta `ADMIN`**:
+El cliente se conecta a `/ws` (o `/ws-sockjs` como fallback) y envía el JWT en
+el header `Authorization` del frame STOMP `CONNECT`. Luego se suscribe a:
+
+```text
+/user/queue/notificaciones
+```
+
+Las notificaciones también quedan persistidas y se consultan por REST en
+`/api/v1/notificaciones`. Ver el Módulo 12 en [`docs/CONTEXT.md`](docs/CONTEXT.md).
+
+Comandos útiles:
+
+```bash
+docker compose logs -f backend   # logs del backend
+docker compose ps                # estado de los servicios
+docker compose down              # detiene los contenedores (conserva la BD)
+```
+
+## Primer usuario (base vacía)
+
+Con la base de datos vacía (por ejemplo, en producción sin el seed), el primer
+registro crea la cuenta `ADMIN`:
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/auth/register \
@@ -52,49 +82,96 @@ curl -X POST http://localhost:8080/api/v1/auth/register \
   -d '{"email":"admin@educa360.pe","password":"Admin12345","nombres":"Ana","apellidos":"Ruiz","dni":"10000001"}'
 ```
 
-A partir de ahí, `/auth/register` queda deshabilitado: **todas las altas las hace un `ADMIN`** desde `/api/v1/admin/usuarios` (y las de alumnos/familias desde `/api/v1/secretaria/...`).
+`telefonos` es opcional. En cuanto existe una cuenta, `/auth/register` responde
+`403`: las altas posteriores las hace un `ADMIN` desde `/api/v1/admin/usuarios`
+y, para alumnos y familias, desde `/api/v1/secretaria/...`.
 
----
+## Variables de entorno
 
-## Desarrollo local
+Todas las variables están documentadas en [`.env.example`](.env.example).
+El archivo `.env` **no se versiona**.
+
+| Variable | Obligatoria | Descripción |
+|---|---|---|
+| `POSTGRES_DB` | Sí | Nombre de la base de datos |
+| `POSTGRES_USER` | Sí | Usuario de PostgreSQL |
+| `POSTGRES_PASSWORD` | Sí | Contraseña de PostgreSQL |
+| `POSTGRES_PORT` | No | Puerto local de PostgreSQL (por defecto `5432`) |
+| `BACKEND_PORT` | No | Puerto local del backend (por defecto `8080`) |
+| `FLYWAY_LOCATIONS` | No | Migraciones a aplicar. Desarrollo: esquema + datos demo; producción: solo `classpath:db/migration` |
+| `APP_JWT_SECRET` | Sí | Clave HS256, mínimo 32 bytes |
+| `APP_JWT_EXPIRATION_MS` | No | Validez del token (por defecto 24 h) |
+| `APP_CORS_ALLOWED_ORIGINS` | No | Orígenes permitidos, separados por coma (`*` en desarrollo) |
+| `APP_SECURITY_LOGIN_MAX_ATTEMPTS` | No | Intentos fallidos antes del bloqueo (por defecto `5`) |
+| `APP_SECURITY_LOGIN_WINDOW_MINUTES` | No | Ventana de conteo en minutos (por defecto `15`) |
+| `APP_SECURITY_LOGIN_COOLDOWN_MINUTES` | No | Duración del bloqueo en minutos (por defecto `15`) |
+| `APP_SUPABASE_URL` | Para archivos | URL del proyecto Supabase (`https://<proyecto>.supabase.co`) |
+| `APP_SUPABASE_SERVICE_ROLE_KEY` | Para archivos | Service role key; **solo backend**, nunca en el frontend |
+
+Para materiales y sustentos, crea en Supabase los buckets **privados**
+`materiales` y `sustentos`. Sin `APP_SUPABASE_URL` y
+`APP_SUPABASE_SERVICE_ROLE_KEY`, esos endpoints responden `503`; el resto de la
+API funciona normal.
+
+Genera el secreto JWT con:
 
 ```bash
-# Sólo la base de datos en Docker y la app en local:
+openssl rand -base64 48
+```
+
+## Reset de la base de datos (desarrollo)
+
+El esquema lo gobierna Flyway. Para recrear todo desde cero:
+
+```bash
+docker compose down -v          # -v elimina el volumen de PostgreSQL
+docker compose up -d --build
+```
+
+Al arrancar de nuevo, Flyway aplica `V1__esquema_inicial.sql`,
+`V3__notificaciones.sql` y, en desarrollo, `V2__datos_demo.sql`.
+
+## Ejecución local del backend
+
+Con PostgreSQL levantado en Docker:
+
+```bash
 docker compose up -d postgres
 ./mvnw spring-boot:run
+```
 
-# Pruebas (requiere Docker: cada clase levanta su propia PostgreSQL efímera)
+La conexión por defecto es `jdbc:postgresql://localhost:5432/educa360` con
+usuario y contraseña `postgres`. Puedes sobreescribirla con
+`SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` y
+`SPRING_DATASOURCE_PASSWORD`.
+
+## Tests
+
+```bash
 ./mvnw test
 ```
 
----
+Los tests de integración usan **Testcontainers** con PostgreSQL 17. Si Docker no
+está disponible, esos tests se omiten (`disabledWithoutDocker = true`) y los
+tests unitarios siguen ejecutándose.
 
-## Roles y zonas de la API
+## Estructura
 
-Cinco roles; la **ruta nombra el dominio responsable** y el `@PreAuthorize` quién puede entrar. Sólo el primero de la tabla es público:
+```text
+src/main/java/com/educa360/backend/
+├── config/      # OpenAPI, WebSocket y configuración transversal
+├── controller/  # endpoints REST
+├── dto/         # request/response
+├── entity/      # entidades JPA (todas extienden Auditable)
+├── exception/   # ApiError y GlobalExceptionHandler
+├── repository/  # Spring Data JPA
+├── security/    # JWT, RBAC y CORS
+└── service/     # reglas de negocio transaccionales
+```
 
-| Zona | Quién | Qué gestiona |
-|---|---|---|
-| `/api/v1/auth` | público / autenticado | `login`, `register` (sólo arranque) y `me` (cuenta + perfil del rol) |
-| `/api/v1/admin/...` | `ADMIN` | Usuarios, docentes (+ habilitaciones), secretarias, materias, períodos, secciones, cursos (+ horario) |
-| `/api/v1/secretaria/...` | `ADMIN` + `SECRETARIA` | Estudiantes, apoderados (+ representados) y matrículas |
-| `/api/v1/docente/cursos` | `DOCENTE` | Sus cursos |
-| `/api/v1/estudiante/cursos` | `ESTUDIANTE` | Los cursos de su sección |
-| `/api/v1/apoderado/hijos` | `APODERADO` | Sus representados con su sección |
-| `/api/v1/demo/...` | autenticado | Endpoints de comprobación de permisos por rol |
+## Errores
 
-**Ejemplo de flujo** (Swagger UI hace esto interactivo):
-
-1. `POST /api/v1/admin/periodos` → crear el período y `PATCH /{id}/estado` a `ABIERTO` (sólo puede haber uno vigente).
-2. `POST /api/v1/admin/secciones` → crear la sección ("3°A").
-3. `POST /api/v1/secretaria/estudiantes` y `POST /api/v1/secretaria/apoderados` → alta de alumno y familia.
-4. `POST /api/v1/secretaria/apoderados/{id}/representados` → vincular al apoderado con su hijo.
-5. `POST /api/v1/secretaria/matriculas` → inscribir al alumno en la sección (nace `PENDIENTE`; `PATCH /{id}/estado` a `PAGADO` cuando se confirme).
-6. `GET /api/v1/apoderado/hijos` → el apoderado ve a su hijo con la sección del período vigente.
-
-### Errores
-
-Respuestas de error uniformes en JSON:
+Todas las respuestas de error usan el cuerpo `ApiError`:
 
 ```json
 {
@@ -107,47 +184,25 @@ Respuestas de error uniformes en JSON:
 }
 ```
 
-Códigos habituales: `400` validación, `401` sin token, `403` sin permiso para la zona, `404` inexistente, `409` conflicto de regla de negocio, `429` login bloqueado por intentos fallidos (con `Retry-After`).
+En errores de validación (`400`), `fields` trae el detalle por campo.
 
----
+| Código | Cuándo |
+|---|---|
+| `400` | Validación del request |
+| `401` | Falta el token o es inválido |
+| `403` | Autenticado sin permiso para la zona |
+| `404` | Recurso inexistente |
+| `409` | Conflicto con una regla de negocio |
+| `413` | Archivo supera el tamaño permitido |
+| `429` | Login bloqueado por intentos fallidos (incluye `Retry-After`) |
+| `503` | Storage no configurado o no disponible |
 
-## Configuración
+## Convenciones de API
 
-Variables principales (el completo está en [`.env.example`](.env.example)):
+- Prefijo: `/api/v1`.
+- Autenticación: `Authorization: Bearer <token>`.
+- Errores uniformes con el cuerpo `ApiError`.
+- Fechas/hora en ISO-8601.
 
-| Variable | Descripción | Por defecto |
-|---|---|---|
-| `POSTGRES_DB/USER/PASSWORD` | Credenciales de la base de datos | — |
-| `POSTGRES_PORT` / `BACKEND_PORT` | Puertos del host | `5432` / `8080` |
-| `APP_JWT_SECRET` | Secreto del JWT (mínimo 32 bytes, obligatorio) | — |
-| `APP_JWT_EXPIRATION_MS` | Validez del token | `86400000` (24 h) |
-| `APP_CORS_ALLOWED_ORIGINS` | Orígenes del SPA permitidos (coma) | `*` |
-| `APP_SECURITY_LOGIN_MAX_ATTEMPTS` | Intentos de login antes de bloquear | `5` |
-| `APP_SECURITY_LOGIN_WINDOW_MINUTES` | Ventana de los intentos | `15` |
-| `APP_SECURITY_LOGIN_COOLDOWN_MINUTES` | Bloqueo tras superar el límite | `15` |
-
----
-
-## Estructura
-
-```
-src/main/java/com/educa360/backend/
-├── controller/   # Endpoints REST (una zona por clase)
-├── service/      # Reglas de negocio y transacciones
-├── repository/   # Spring Data JPA
-├── entity/       # JPA: User, Docente, Estudiante, Apoderado, Materia,
-│                 # Seccion, Curso, HorarioBloque, Matricula, PeriodoAcademico...
-├── dto/          # Requests con validación y Responses por pantalla
-├── security/     # JWT, filtros y configuración de seguridad
-└── exception/    # Excepciones de negocio + manejo global (JSON uniforme)
-```
-
----
-
-## Pruebas
-
-```bash
-./mvnw test      # 79 pruebas: unitarias + integración (Testcontainers)
-```
-
-Cada clase de integración levanta su propia PostgreSQL 17 efímera: las pruebas **nunca tocan la base de datos de desarrollo** y se saltan si no hay Docker. El CI de GitHub Actions las ejecuta en cada push.
+El detalle de módulos, endpoints y reglas de negocio está en
+[`docs/CONTEXT.md`](docs/CONTEXT.md).

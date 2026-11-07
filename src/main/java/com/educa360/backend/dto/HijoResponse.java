@@ -4,7 +4,7 @@ import com.educa360.backend.entity.ApoderadoEstudiante;
 import com.educa360.backend.entity.Matricula;
 
 /**
- * Un representado del apoderado: su ficha + su sección del período vigente.
+ * Un representado del apoderado: su ficha + su sección del año vigente.
  *
  * Sección/matrícula pueden venir null (aún sin matrícula): el hijo existe
  * como vínculo antes de ser inscrito.
@@ -15,9 +15,9 @@ public record HijoResponse(
         String apellidos,
         String dni,
         String email,
-        String seccionEtiqueta, // del período ABIERTO; null si no está matriculado
-        String periodoNombre,
-        Matricula.Estado matriculaEstado,
+        String seccionEtiqueta, // del año ABIERTO; null si no está matriculado
+        String anioNombre,
+        Matricula.SituacionFinal situacionFinal,
         ApoderadoEstudiante.Parentesco parentesco,
         boolean responsablePrincipal
 ) {

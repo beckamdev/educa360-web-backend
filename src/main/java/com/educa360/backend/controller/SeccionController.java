@@ -15,7 +15,7 @@ import java.util.List;
  * Secciones — los grupos de alumnos ("3°A") — exclusivo de ADMIN.
  *
  * Sólo secundaria: grado 1..5 y sin campo "nivel" (lo valida el DTO).
- * Un "grado+letra" sólo puede existir una vez dentro de un período → 409.
+ * Un "grado+letra" sólo puede existir una vez dentro de un año → 409.
  */
 @RestController
 @RequestMapping("/api/v1/admin/secciones")
@@ -28,10 +28,10 @@ public class SeccionController {
         this.seccionService = seccionService;
     }
 
-    /** Listado completo, o sólo las de un período con ?periodoId=. */
+    /** Listado completo, o sólo las de un año con ?anioId=. */
     @GetMapping
-    public ResponseEntity<List<SeccionResponse>> listar(@RequestParam(required = false) Long periodoId) {
-        return ResponseEntity.ok(seccionService.listar(periodoId));
+    public ResponseEntity<List<SeccionResponse>> listar(@RequestParam(required = false) Long anioId) {
+        return ResponseEntity.ok(seccionService.listar(anioId));
     }
 
     @PostMapping

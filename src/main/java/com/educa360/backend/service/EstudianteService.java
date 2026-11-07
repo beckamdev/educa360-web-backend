@@ -1,13 +1,16 @@
 package com.educa360.backend.service;
 
+import com.educa360.backend.dto.EstudianteEstadoRequest;
 import com.educa360.backend.dto.EstudianteRequest;
 import com.educa360.backend.dto.EstudianteResponse;
+import com.educa360.backend.dto.EstudianteUpdateRequest;
 import com.educa360.backend.dto.UsuarioBasicoRequest;
 import com.educa360.backend.dto.UsuarioResponse;
 import com.educa360.backend.entity.Estudiante;
 import com.educa360.backend.entity.Matricula;
 import com.educa360.backend.entity.User;
 import com.educa360.backend.exception.BadRequestException;
+import com.educa360.backend.exception.NotFoundException;
 import com.educa360.backend.repository.ApoderadoEstudianteRepository;
 import com.educa360.backend.repository.EstudianteRepository;
 import org.springframework.stereotype.Service;
@@ -25,7 +28,9 @@ import java.util.Optional;
  * - no registra teléfonos propios: al ser menores de edad, la comunicación
  *   es siempre con su apoderado;
  * - su listado es EstudianteResponse (sección, matrícula y apoderados),
- *   NO UsuarioResponse — esa es la vista de cuentas de ADMIN.
+ *   NO UsuarioResponse — esa es la vista de cuentas de ADMIN;
+ * - la edición de la ficha es acotada: fecha de nacimiento y estado;
+ * - el reingreso (ACTIVO) reactiva la matrícula vigente si estaba RETIRADA.
  */
 @Service
 public class EstudianteService {
@@ -75,7 +80,52 @@ public class EstudianteService {
                 .toList();
     }
 
+    /** Ficha de un alumno con su matrícula vigente y sus apoderados. */
+    @Transactional(readOnly = true)
+    public EstudianteResponse buscar(Long id) {
+        return aRespuesta(buscarEntidad(id));
+    }
+
+    /** Edición acotada: fecha de nacimiento y, opcionalmente, estado académico. */
+    @Transactional
+    public EstudianteResponse actualizar(Long id, EstudianteUpdateRequest datos) {
+        Estudiante estudiante = buscarEntidad(id);
+        estudiante.setFechaNacimiento(datos.fechaNacimiento());
+        if (datos.estado() != null) {
+            aplicarEstado(estudiante, datos.estado());
+        }
+        return aRespuesta(estudiante);
+    }
+
+    /**
+     * Cambia el estado académico. ACTIVO es el reingreso: reactiva al alumno
+     * y su matrícula vigente si estaba RETIRADA. RETIRADO marca ambas.
+     */
+    @Transactional
+    public EstudianteResponse cambiarEstado(Long id, EstudianteEstadoRequest datos) {
+        Estudiante estudiante = buscarEntidad(id);
+        aplicarEstado(estudiante, datos.estado());
+        return aRespuesta(estudiante);
+    }
+
     // ==================== Helpers ====================
+
+    private void aplicarEstado(Estudiante estudiante, Estudiante.EstadoEstudiante estado) {
+        estudiante.setEstado(estado);
+        Optional<Matricula> vigente = matriculaService.vigenteDe(estudiante.getId());
+
+        if (estado == Estudiante.EstadoEstudiante.ACTIVO) {
+            vigente.filter(Matricula::estaRetirada)
+                    .ifPresent(matricula -> matricula.setSituacionFinal(Matricula.SituacionFinal.EN_CURSO));
+        } else if (estado == Estudiante.EstadoEstudiante.RETIRADO) {
+            vigente.ifPresent(matricula -> matricula.setSituacionFinal(Matricula.SituacionFinal.RETIRADO));
+        }
+    }
+
+    private Estudiante buscarEntidad(Long id) {
+        return estudianteRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("El estudiante " + id + " no existe"));
+    }
 
     private boolean coincide(User user, String q) {
         String texto = q.toLowerCase(Locale.ROOT);
@@ -85,7 +135,7 @@ public class EstudianteService {
                 || (user.getDni() != null && user.getDni().contains(q));
     }
 
-    /** Ficha completa: sección/matrícula del período ABIERTO + apoderados vivos. */
+    /** Ficha completa: sección/matrícula del año ABIERTO + apoderados vivos. */
     private EstudianteResponse aRespuesta(Estudiante estudiante) {
         User user = estudiante.getUser();
         Optional<Matricula> vigente = matriculaService.vigenteDe(estudiante.getId());
@@ -109,8 +159,9 @@ public class EstudianteService {
                 estudiante.getEstado(),
                 user.isActivo(),
                 vigente.map(matricula -> matricula.getSeccion().getEtiqueta()).orElse(null),
-                vigente.map(matricula -> matricula.getSeccion().getPeriodo().getNombre()).orElse(null),
-                vigente.map(Matricula::getEstado).orElse(null),
+                vigente.map(matricula -> matricula.getSeccion().getAnio().getNombre()).orElse(null),
+                vigente.map(Matricula::getFechaMatricula).orElse(null),
+                vigente.map(Matricula::getSituacionFinal).orElse(null),
                 apoderados
         );
     }

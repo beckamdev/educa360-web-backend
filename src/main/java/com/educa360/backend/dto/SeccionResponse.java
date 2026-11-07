@@ -6,7 +6,7 @@ import java.time.LocalDateTime;
 
 /**
  * Ficha de una sección para el panel: incluye el nombre del tutor y el del
- * período para poder pintar la tabla sin N peticiones.
+ * año para poder pintar la tabla sin N peticiones.
  */
 public record SeccionResponse(
         Long id,
@@ -16,8 +16,8 @@ public record SeccionResponse(
         String aula,
         Long tutorId,
         String tutorNombre,
-        Long periodoId,
-        String periodoNombre,
+        Long anioId,
+        String anioNombre,
         LocalDateTime createdAt
 ) {
     public static SeccionResponse desde(Seccion seccion) {
@@ -29,8 +29,8 @@ public record SeccionResponse(
                 seccion.getAula(),
                 seccion.getTutor() != null ? seccion.getTutor().getId() : null,
                 nombreDe(seccion),
-                seccion.getPeriodo().getId(),
-                seccion.getPeriodo().getNombre(),
+                seccion.getAnio().getId(),
+                seccion.getAnio().getNombre(),
                 seccion.getCreatedAt()
         );
     }

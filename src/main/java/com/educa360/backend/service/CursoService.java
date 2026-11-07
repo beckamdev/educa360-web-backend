@@ -14,10 +14,14 @@ import com.educa360.backend.entity.User;
 import com.educa360.backend.exception.BadRequestException;
 import com.educa360.backend.exception.ConflictException;
 import com.educa360.backend.exception.NotFoundException;
+import com.educa360.backend.repository.AsistenciaRepository;
+import com.educa360.backend.repository.CalificacionRepository;
 import com.educa360.backend.repository.CursoRepository;
 import com.educa360.backend.repository.DocenteRepository;
 import com.educa360.backend.repository.EstudianteRepository;
 import com.educa360.backend.repository.HorarioBloqueRepository;
+import com.educa360.backend.repository.MaterialClaseRepository;
+import com.educa360.backend.repository.UnidadRepository;
 import com.educa360.backend.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +48,10 @@ public class CursoService {
     private final DocenteRepository docenteRepository;
     private final EstudianteRepository estudianteRepository;
     private final UserRepository userRepository;
+    private final UnidadRepository unidadRepository;
+    private final AsistenciaRepository asistenciaRepository;
+    private final CalificacionRepository calificacionRepository;
+    private final MaterialClaseRepository materialClaseRepository;
     private final MateriaService materiaService;
     private final SeccionService seccionService;
     private final MatriculaService matriculaService;
@@ -53,6 +61,10 @@ public class CursoService {
                         DocenteRepository docenteRepository,
                         EstudianteRepository estudianteRepository,
                         UserRepository userRepository,
+                        UnidadRepository unidadRepository,
+                        AsistenciaRepository asistenciaRepository,
+                        CalificacionRepository calificacionRepository,
+                        MaterialClaseRepository materialClaseRepository,
                         MateriaService materiaService,
                         SeccionService seccionService,
                         MatriculaService matriculaService) {
@@ -61,6 +73,10 @@ public class CursoService {
         this.docenteRepository = docenteRepository;
         this.estudianteRepository = estudianteRepository;
         this.userRepository = userRepository;
+        this.unidadRepository = unidadRepository;
+        this.asistenciaRepository = asistenciaRepository;
+        this.calificacionRepository = calificacionRepository;
+        this.materialClaseRepository = materialClaseRepository;
         this.materiaService = materiaService;
         this.seccionService = seccionService;
         this.matriculaService = matriculaService;
@@ -73,6 +89,10 @@ public class CursoService {
         Materia materia = materiaService.buscar(request.materiaId());
         Seccion seccion = seccionService.buscar(request.seccionId());
 
+        if (seccion.getAnio().estaCerrado()) {
+            throw new ConflictException("El año " + seccion.getAnio().getAnio()
+                    + " está CERRADO: no se pueden crear cursos");
+        }
         if (!materia.isActiva()) {
             throw new ConflictException("La materia '" + materia.getNombre()
                     + "' está desactivada: reactívala antes de crear el curso");
@@ -109,6 +129,9 @@ public class CursoService {
                 .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
         Estudiante estudiante = estudianteRepository.findByUser(user)
                 .orElseThrow(() -> new NotFoundException("El usuario no tiene perfil Estudiante"));
+        if (!estudiante.estaHabilitado()) {
+            return List.of(); // retirado/trasladado/egresado: ya no cursa
+        }
         return matriculaService.vigenteDe(estudiante.getId())
                 .map(matricula -> cursoRepository.findBySeccionId(matricula.getSeccion().getId()))
                 .orElse(List.of())
@@ -138,11 +161,31 @@ public class CursoService {
     /**
      * Quitar el curso. Es una baja física a propósito: no es histórico de
      * personas (no se desactiva como User), sino configuración del período —
-     * las notas de ese curso (futuro módulo) decidirán si exigen 404.
+     * las notas de ese curso deciden si exigen 409.
      */
     @Transactional
     public void eliminar(Long id) {
         Curso curso = buscar(id);
+        if (curso.getSeccion().getAnio().estaCerrado()) {
+            throw new ConflictException("El año " + curso.getSeccion().getAnio().getAnio()
+                    + " está CERRADO: no se pueden eliminar cursos");
+        }
+        if (calificacionRepository.existsByUnidadCursoId(curso.getId())) {
+            throw new ConflictException("El curso ya tiene calificaciones: "
+                    + "no se puede eliminar");
+        }
+        if (unidadRepository.existsByCursoId(curso.getId())) {
+            throw new ConflictException("El curso ya tiene planificación (unidades): "
+                    + "elimínalas antes de borrar el curso");
+        }
+        if (asistenciaRepository.existsByBloqueCursoId(curso.getId())) {
+            throw new ConflictException("El curso ya tiene asistencias: "
+                    + "no se puede eliminar");
+        }
+        if (materialClaseRepository.existsByCursoIdAndActivoTrue(curso.getId())) {
+            throw new ConflictException("El curso ya tiene materiales: "
+                    + "no se puede eliminar");
+        }
         horarioRepository.deleteByCurso(curso); // primero los bloques: tienen FK al curso
         cursoRepository.delete(curso);
     }
@@ -151,6 +194,27 @@ public class CursoService {
 
     @Transactional(readOnly = true)
     public List<HorarioBloqueResponse> listarHorario(Long cursoId) {
+        buscar(cursoId); // 404 si el curso no existe
+        return horarioRepository.findByCursoId(cursoId).stream()
+                .map(HorarioBloqueResponse::desde)
+                .toList();
+    }
+
+    /**
+     * Horario de un curso para su DOCENTE dueño. La identidad sale del token:
+     * un docente no puede consultar el horario de un curso ajeno.
+     */
+    @Transactional(readOnly = true)
+    public List<HorarioBloqueResponse> listarHorarioDelDocente(String email, Long cursoId) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
+        Docente docente = docenteRepository.findByUser(user)
+                .orElseThrow(() -> new NotFoundException("El usuario no tiene perfil Docente"));
+        Curso curso = buscar(cursoId);
+        if (!curso.getDocente().getId().equals(docente.getId())) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "El curso " + cursoId + " no pertenece a este docente");
+        }
         return horarioRepository.findByCursoId(cursoId).stream()
                 .map(HorarioBloqueResponse::desde)
                 .toList();
@@ -167,6 +231,15 @@ public class CursoService {
     @Transactional
     public List<HorarioBloqueResponse> reemplazarHorario(Long cursoId, HorarioRequest request) {
         Curso curso = buscar(cursoId);
+
+        if (curso.getSeccion().getAnio().estaCerrado()) {
+            throw new ConflictException("El año " + curso.getSeccion().getAnio().getAnio()
+                    + " está CERRADO: no se puede modificar el horario");
+        }
+        if (asistenciaRepository.existsByBloqueCursoId(curso.getId())) {
+            throw new ConflictException("El curso ya tiene asistencias: "
+                    + "no se puede reemplazar el horario");
+        }
 
         List<HorarioBloque> nuevos = request.bloques().stream()
                 .map(b -> new HorarioBloque(curso, b.dia(), b.horaInicio(), b.horaFin()))

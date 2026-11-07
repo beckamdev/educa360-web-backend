@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
@@ -84,6 +85,21 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<Object> handleConflict(ConflictException ex, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, ex.getMessage(), request, null);
+    }
+
+    // 413: archivo demasiado grande (validación propia)
+    @ExceptionHandler(PayloadTooLargeException.class)
+    public ResponseEntity<Object> handlePayloadTooLarge(PayloadTooLargeException ex,
+                                                        HttpServletRequest request) {
+        return build(HttpStatus.PAYLOAD_TOO_LARGE, ex.getMessage(), request, null);
+    }
+
+    // 503: Supabase Storage no configurado o no disponible
+    @ExceptionHandler(StorageUnavailableException.class)
+    public ResponseEntity<Object> handleStorageUnavailable(StorageUnavailableException ex,
+                                                           HttpServletRequest request) {
+        log.error("Storage no disponible en {}", request.getRequestURI(), ex);
+        return build(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), request, null);
     }
 
     // 429: límite de intentos de login (anti fuerza bruta), con Retry-After
@@ -153,6 +169,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
         ApiError body = ApiError.withFields(400, reason(HttpStatus.BAD_REQUEST),
                 "Datos de entrada inválidos", path(request), campos);
+        return handleExceptionInternal(ex, body, headers, statusCode, request);
+    }
+
+    /** 413 con mensaje uniforme cuando Spring corta el multipart por tamaño. */
+    @Override
+    protected ResponseEntity<Object> handleMaxUploadSizeExceededException(
+            MaxUploadSizeExceededException ex, HttpHeaders headers,
+            HttpStatusCode statusCode, WebRequest request) {
+
+        ApiError body = ApiError.of(statusCode.value(), reason(statusCode),
+                "El archivo supera el tamaño máximo permitido", path(request));
         return handleExceptionInternal(ex, body, headers, statusCode, request);
     }
 

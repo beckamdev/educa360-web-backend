@@ -1,8 +1,6 @@
 package com.educa360.backend.repository;
 
-import com.educa360.backend.entity.Estudiante;
 import com.educa360.backend.entity.Matricula;
-import com.educa360.backend.entity.Seccion;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -12,14 +10,21 @@ import java.util.Optional;
 @Repository
 public interface MatriculaRepository extends JpaRepository<Matricula, Long> {
 
-    boolean existsByEstudianteAndSeccion(Estudiante estudiante, Seccion seccion);
+    /** ¿Ya tiene el estudiante una matrícula en ESTE año? */
+    boolean existsByEstudianteIdAndAnioId(Long estudianteId, Long anioId);
 
-    /** ¿Ya tiene el estudiante una matrícula en ESTE período? (en otra sección) */
-    boolean existsByEstudianteIdAndSeccionPeriodoId(Long estudianteId, Long periodoId);
+    /** La matrícula anual del alumno (una sola por año). */
+    Optional<Matricula> findByEstudianteIdAndAnioId(Long estudianteId, Long anioId);
 
-    /** La matrícula vigente del alumno: la del período ABIERTO. */
-    Optional<Matricula> findByEstudianteIdAndSeccionPeriodoId(Long estudianteId, Long periodoId);
+    /** La matrícula del alumno en un año calendario (para tickets por fecha). */
+    Optional<Matricula> findByEstudianteIdAndAnioAnio(Long estudianteId, Integer anio);
 
-    /** Todas las matrículas de un período (para el listado de Secretaría). */
-    List<Matricula> findBySeccionPeriodoId(Long periodoId);
+    /** Todas las matrículas de un año (listado de Secretaría). */
+    List<Matricula> findByAnioId(Long anioId);
+
+    /** Matrículas de una sección concreta. */
+    List<Matricula> findBySeccionId(Long seccionId);
+
+    /** Historial completo del alumno (todas sus matrículas). */
+    List<Matricula> findByEstudianteId(Long estudianteId);
 }

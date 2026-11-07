@@ -13,14 +13,22 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      # Flyway: en desarrollo incluye los datos demo; en producción usar
+      # solo classpath:db/migration.
+      FLYWAY_LOCATIONS: ${FLYWAY_LOCATIONS:-classpath:db/migration,classpath:db/seed}
       # Obligatorio: si no está definido, el contenedor NO arranca en vez
       # de caer en el secreto de desarrollo de application.properties.
       APP_JWT_SECRET: ${APP_JWT_SECRET:?Define APP_JWT_SECRET en .env (mínimo 32 bytes)}
       APP_JWT_EXPIRATION_MS: ${APP_JWT_EXPIRATION_MS:-86400000}
+      # Orígenes permitidos por CORS, separados por coma ("*" en desarrollo).
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-*}
       # CANTIDAD DE INTENTOS POR LOGIN (anti fuerza bruta)
       APP_SECURITY_LOGIN_MAX_ATTEMPTS: ${APP_SECURITY_LOGIN_MAX_ATTEMPTS:-5}
       APP_SECURITY_LOGIN_WINDOW_MINUTES: ${APP_SECURITY_LOGIN_WINDOW_MINUTES:-15}
       APP_SECURITY_LOGIN_COOLDOWN_MINUTES: ${APP_SECURITY_LOGIN_COOLDOWN_MINUTES:-15}
+      # Supabase Storage: sin estas variables los endpoints de archivos dan 503.
+      APP_SUPABASE_URL: ${APP_SUPABASE_URL:-}
+      APP_SUPABASE_SERVICE_ROLE_KEY: ${APP_SUPABASE_SERVICE_ROLE_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,15 +1,17 @@
 package com.educa360.backend;
 
 import com.educa360.backend.entity.Estudiante;
+import com.educa360.backend.entity.Matricula;
+import com.educa360.backend.repository.AnioEscolarRepository;
 import com.educa360.backend.repository.ApoderadoEstudianteRepository;
 import com.educa360.backend.repository.ApoderadoRepository;
+import com.educa360.backend.repository.BimestreRepository;
 import com.educa360.backend.repository.CursoRepository;
 import com.educa360.backend.repository.DocenteRepository;
 import com.educa360.backend.repository.EstudianteRepository;
 import com.educa360.backend.repository.HorarioBloqueRepository;
 import com.educa360.backend.repository.MateriaRepository;
 import com.educa360.backend.repository.MatriculaRepository;
-import com.educa360.backend.repository.PeriodoAcademicoRepository;
 import com.educa360.backend.repository.SeccionRepository;
 import com.educa360.backend.repository.SecretariaRepository;
 import com.educa360.backend.repository.UserRepository;
@@ -18,6 +20,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -46,17 +49,19 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * Tests del Módulo 3: estudiantes, matrículas y representados.
  *
  * Reglas que protege el suite:
- * - la matrícula nace PENDIENTE y SÓLO Secretaría la pasa a PAGADO;
- * - única por (estudiante, sección) y ninguna segunda en el MISMO período;
+ * - la matrícula nace EN_CURSO y es única por (estudiante, año);
  * - sólo alumnos ACTIVOS se matriculan;
+ * - el cambio de sección sólo se permite antes de iniciar clases;
+ * - el retiro marca matrícula y alumno RETIRADOS; el reingreso los reactiva;
  * - el apoderado sólo ve a SUS hijos (baja lógica del vínculo);
  * - un SOLO responsable principal por estudiante;
- * - la sección que se muestra es la del período ABIERTO ("vigente");
+ * - la sección que se muestra es la del año ABIERTO ("vigente");
  * - el ESTUDIANTE ve los cursos de SU sección; /auth/me trae el perfil.
  *
  * PostgreSQL efímera (Testcontainers): no toca la BD de desarrollo.
  */
 @Testcontainers(disabledWithoutDocker = true)
+@ActiveProfiles("test")
 @SpringBootTest
 @AutoConfigureMockMvc
 class EstudiantesMatriculasApiTest {
@@ -90,7 +95,10 @@ class EstudiantesMatriculasApiTest {
     private MateriaRepository materiaRepository;
 
     @Autowired
-    private PeriodoAcademicoRepository periodoRepository;
+    private AnioEscolarRepository anioRepository;
+
+    @Autowired
+    private BimestreRepository bimestreRepository;
 
     @Autowired
     private SeccionRepository seccionRepository;
@@ -128,7 +136,8 @@ class EstudiantesMatriculasApiTest {
         seccionRepository.deleteAll();
         docenteRepository.deleteAll();
         materiaRepository.deleteAll();
-        periodoRepository.deleteAll();
+        bimestreRepository.deleteAll();
+        anioRepository.deleteAll();
         estudianteRepository.deleteAll();
         secretariaRepository.deleteAll();
         apoderadoRepository.deleteAll();
@@ -142,84 +151,87 @@ class EstudiantesMatriculasApiTest {
     @Test
     @DisplayName("Flujo: Secretaría matricula y vincula; el apoderado ve a su hijo con sección")
     void apoderadoVeAHijosConSeccion() throws Exception {
-        long periodo = crearPeriodo("2026", "2026-03-02", "2026-12-18");
-        long seccion = nuevaSeccion(3, "A", periodo);
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
         long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
         long mama = crearApoderado("lucia@educa360.pe", "40000001", "Lucia");
 
         assertEquals(201, vincular(mama, alumno, "MADRE", true));
         assertEquals(201, matricular(alumno, seccion));
-        assertEquals(200, cambiarEstadoDeMatricula(idDeUltimaMatricula(), "PAGADO"));
-        assertEquals(200, abrirPeriodo(periodo), "el período se abre: es el vigente");
+        assertEquals(200, abrirAnio(anio), "el año se abre: es el vigente");
 
         String hijos = hijosDe("lucia@educa360.pe", "Familia1234");
         assertTrue(hijos.contains("\"nombres\":\"Alma\""), "debe ver a su hijo: " + hijos);
         assertTrue(hijos.contains("\"seccionEtiqueta\":\"3"), "con su sección: " + hijos);
-        assertTrue(hijos.contains("\"periodoNombre\":\"2026\""));
-        assertTrue(hijos.contains("\"matriculaEstado\":\"PAGADO\""));
+        assertTrue(hijos.contains("\"anioNombre\":"), "con el año vigente: " + hijos);
+        assertTrue(hijos.contains("\"situacionFinal\":\"EN_CURSO\""));
         assertTrue(hijos.contains("\"parentesco\":\"MADRE\""));
         assertTrue(hijos.contains("\"responsablePrincipal\":true"));
     }
 
     @Test
-    @DisplayName("Hijo sin matrícula se ve con sección null; al abrir el período aparece")
-    void seccionVigenteDependeDePeriodoAbierto() throws Exception {
-        long periodo = crearPeriodo("2026", "2026-03-02", "2026-12-18");
-        long seccion = nuevaSeccion(3, "A", periodo);
+    @DisplayName("Hijo sin matrícula se ve con sección null; al abrir el año aparece")
+    void seccionVigenteDependeDeAnioAbierto() throws Exception {
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
         long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
         long mama = crearApoderado("lucia@educa360.pe", "40000001", "Lucia");
         vincular(mama, alumno, "MADRE", true);
-        matricular(alumno, seccion); // período todavía CERRADO: no hay vigente
+        matricular(alumno, seccion); // año todavía PLANIFICADO: no hay vigente
 
         String sinAbrir = hijosDe("lucia@educa360.pe", "Familia1234");
         assertTrue(sinAbrir.contains("\"seccionEtiqueta\":null"),
-                "sin período abierto no hay sección vigente: " + sinAbrir);
+                "sin año abierto no hay sección vigente: " + sinAbrir);
 
-        abrirPeriodo(periodo);
+        abrirAnio(anio);
         String abierto = hijosDe("lucia@educa360.pe", "Familia1234");
         assertTrue(abierto.contains("\"seccionEtiqueta\":\"3"),
-                "abierto el período, la sección aparece: " + abierto);
+                "abierto el año, la sección aparece: " + abierto);
     }
 
     // ==================== Matrículas: reglas ====================
 
     @Test
-    @DisplayName("La matrícula nace PENDIENTE y sólo Secretaría la pasa a PAGADO")
-    void matriculaNacePendienteYPasaAPagado() throws Exception {
-        long periodo = crearPeriodo("2026", "2026-03-02", "2026-12-18");
-        long seccion = nuevaSeccion(3, "A", periodo);
+    @DisplayName("La matrícula nace EN_CURSO y se consulta por id")
+    void matriculaNaceEnCurso() throws Exception {
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
         long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
 
         MvcResult creada = crear(MATRICULAS, """
-                {"estudianteId":%d,"seccionId":%d}""".formatted(alumno, seccion));
+                {"estudianteId":%d,"seccionId":%d,"fechaMatricula":"2026-02-20"}"""
+                .formatted(alumno, seccion));
         assertEquals(201, creada.getResponse().getStatus());
-        assertTrue(creada.getResponse().getContentAsString().contains("\"estado\":\"PENDIENTE\""),
-                "debe nacer pendiente: " + creada.getResponse().getContentAsString());
+        assertTrue(creada.getResponse().getContentAsString().contains("\"situacionFinal\":\"EN_CURSO\""),
+                "debe nacer en curso: " + creada.getResponse().getContentAsString());
 
         long matriculaId = idDe(creada);
-        assertEquals(200, cambiarEstadoDeMatricula(matriculaId, "PAGADO"));
-        assertEquals(404, cambiarEstadoDeMatricula(999_999L, "PAGADO"), "id inexistente");
+        MvcResult detalle = conToken(get(MATRICULAS + "/" + matriculaId), admin);
+        assertEquals(200, detalle.getResponse().getStatus());
+        assertTrue(detalle.getResponse().getContentAsString().contains("\"fechaMatricula\":\"2026-02-20\""));
+        assertEquals(404, conToken(get(MATRICULAS + "/999999"), admin).getResponse().getStatus(),
+                "id inexistente");
     }
 
     @Test
-    @DisplayName("Duplicada en la misma sección o dos en el mismo período responden 409")
+    @DisplayName("Duplicada en la misma sección o dos en el mismo año responden 409")
     void matriculaDuplicadaResponde409() throws Exception {
-        long periodo = crearPeriodo("2026", "2026-03-02", "2026-12-18");
-        long seccionA = nuevaSeccion(3, "A", periodo);
-        long seccionB = nuevaSeccion(3, "B", periodo);
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccionA = nuevaSeccion(3, "A", anio);
+        long seccionB = nuevaSeccion(3, "B", anio);
         long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
 
         assertEquals(201, matricular(alumno, seccionA));
         assertEquals(409, matricular(alumno, seccionA), "misma sección = duplicada");
         assertEquals(409, matricular(alumno, seccionB),
-                "otra sección del MISMO período = es un traslado, no una segunda inscripción");
+                "otra sección del MISMO año = es un traslado, no una segunda inscripción");
     }
 
     @Test
     @DisplayName("Sólo alumnos ACTIVOS se matriculan (RETIRADO -> 409)")
     void matricularAlumnoRetiradoResponde409() throws Exception {
-        long periodo = crearPeriodo("2026", "2026-03-02", "2026-12-18");
-        long seccion = nuevaSeccion(3, "A", periodo);
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
         long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
 
         Estudiante estudiante = estudianteRepository.findById(alumno).orElseThrow();
@@ -232,12 +244,142 @@ class EstudiantesMatriculasApiTest {
     @Test
     @DisplayName("Matricular a un estudiante o sección inexistentes responde 404")
     void matriculaResponde404() throws Exception {
-        long periodo = crearPeriodo("2026", "2026-03-02", "2026-12-18");
-        long seccion = nuevaSeccion(3, "A", periodo);
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
         long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
 
         assertEquals(404, matricular(999_999L, seccion));
         assertEquals(404, matricular(alumno, 999_999L));
+    }
+
+    @Test
+    @DisplayName("Cambiar de sección antes del primer día de clases devuelve 200")
+    void cambiarSeccionAntesDeIniciarClases() throws Exception {
+        long anio = crearAnio(2099, "Año Escolar 2099", "2099-03-01");
+        long seccionA = nuevaSeccion(3, "A", anio);
+        long seccionB = nuevaSeccion(3, "B", anio);
+        long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
+        assertEquals(201, matricular(alumno, seccionA));
+        long matricula = matriculaRepository.findAll().get(0).getId();
+
+        MvcResult cambio = conToken(patch(MATRICULAS + "/" + matricula + "/seccion")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"seccionId\":%d}".formatted(seccionB)), admin);
+        assertEquals(200, cambio.getResponse().getStatus());
+        assertTrue(cambio.getResponse().getContentAsString().contains("\"seccionEtiqueta\":\"3°B\""),
+                "la matrícula queda en la sección nueva: " + cambio.getResponse().getContentAsString());
+    }
+
+    @Test
+    @DisplayName("Cambiar de sección con el año ya iniciado devuelve 409")
+    void cambiarSeccionConAnioIniciadoResponde409() throws Exception {
+        long anio = crearAnio(2020, "Año Escolar 2020", "2020-03-02");
+        long seccionA = nuevaSeccion(3, "A", anio);
+        long seccionB = nuevaSeccion(3, "B", anio);
+        long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
+        assertEquals(201, matricular(alumno, seccionA));
+        long matricula = matriculaRepository.findAll().get(0).getId();
+
+        assertEquals(409, conToken(patch(MATRICULAS + "/" + matricula + "/seccion")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"seccionId\":%d}".formatted(seccionB)), admin)
+                .getResponse().getStatus(), "el año ya inició clases");
+    }
+
+    @Test
+    @DisplayName("Cambiar a una sección de otro año devuelve 409")
+    void cambiarSeccionDeOtroAnioResponde409() throws Exception {
+        long anio = crearAnio(2099, "Año Escolar 2099", "2099-03-01");
+        long otroAnio = crearAnio(2098, "Año Escolar 2098", "2098-03-01");
+        long seccionA = nuevaSeccion(3, "A", anio);
+        long seccionOtroAnio = nuevaSeccion(3, "A", otroAnio);
+        long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
+        assertEquals(201, matricular(alumno, seccionA));
+        long matricula = matriculaRepository.findAll().get(0).getId();
+
+        assertEquals(409, conToken(patch(MATRICULAS + "/" + matricula + "/seccion")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"seccionId\":%d}".formatted(seccionOtroAnio)), admin)
+                .getResponse().getStatus(), "la sección nueva es de otro año");
+    }
+
+    @Test
+    @DisplayName("Retiro marca matrícula y alumno RETIRADOS; el reingreso los reactiva")
+    void retiroYReingreso() throws Exception {
+        long anio = crearAnio(2027, "Año Escolar 2027", "2027-03-01");
+        long seccion = nuevaSeccion(3, "A", anio);
+        long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
+        assertEquals(201, matricular(alumno, seccion));
+        long matricula = matriculaRepository.findAll().get(0).getId();
+
+        MvcResult retiro = conToken(patch(MATRICULAS + "/" + matricula + "/retiro"), admin);
+        assertEquals(200, retiro.getResponse().getStatus());
+        assertTrue(retiro.getResponse().getContentAsString().contains("\"situacionFinal\":\"RETIRADO\""));
+        assertEquals(Estudiante.EstadoEstudiante.RETIRADO,
+                estudianteRepository.findById(alumno).orElseThrow().getEstado());
+        assertEquals(409, matricular(alumno, seccion), "un alumno retirado no se vuelve a matricular");
+
+        assertEquals(200, abrirAnio(anio), "el año sigue abierto para el reingreso");
+        MvcResult reingreso = conToken(patch(ESTUDIANTES + "/" + alumno + "/estado")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"estado\":\"ACTIVO\"}"), admin);
+        assertEquals(200, reingreso.getResponse().getStatus());
+        assertEquals(Estudiante.EstadoEstudiante.ACTIVO,
+                estudianteRepository.findById(alumno).orElseThrow().getEstado());
+        assertEquals(Matricula.SituacionFinal.EN_CURSO,
+                matriculaRepository.findById(matricula).orElseThrow().getSituacionFinal(),
+                "el reingreso reactiva la matrícula vigente");
+    }
+
+    @Test
+    @DisplayName("El listado de matrículas filtra por año, sección y texto")
+    void listarMatriculas() throws Exception {
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
+        long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
+        matricular(alumno, seccion);
+
+        String porAnio = listar(MATRICULAS + "?anioId=" + anio);
+        assertTrue(porAnio.contains("\"situacionFinal\":\"EN_CURSO\""), porAnio);
+        assertTrue(porAnio.contains("Alma"), porAnio);
+        assertTrue(listar(MATRICULAS + "?seccionId=" + seccion).contains("Alma"));
+        assertTrue(listar(MATRICULAS + "?q=alma").contains("Alma"));
+        assertFalse(listar(MATRICULAS + "?q=zzz").contains("Alma"));
+    }
+
+    @Test
+    @DisplayName("GET /estudiante/matricula devuelve la matrícula vigente del alumno")
+    void estudianteConsultaSuMatricula() throws Exception {
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
+        long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
+        String token = loginYToken("alma@educa360.pe", "Alumno1234");
+
+        assertEquals(404, conToken(get("/api/v1/estudiante/matricula"), token)
+                .getResponse().getStatus(), "sin matrícula todavía");
+
+        matricular(alumno, seccion);
+        abrirAnio(anio);
+
+        MvcResult suya = conToken(get("/api/v1/estudiante/matricula"), token);
+        assertEquals(200, suya.getResponse().getStatus());
+        assertTrue(suya.getResponse().getContentAsString().contains("\"seccionEtiqueta\":\"3"),
+                suya.getResponse().getContentAsString());
+        assertTrue(suya.getResponse().getContentAsString().contains("\"situacionFinal\":\"EN_CURSO\""));
+    }
+
+    @Test
+    @DisplayName("PUT /secretaria/estudiantes/{id} edita fecha de nacimiento y estado")
+    void editarFichaAcotada() throws Exception {
+        long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
+
+        MvcResult actualizado = conToken(put(ESTUDIANTES + "/" + alumno)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fechaNacimiento\":\"2010-05-05\",\"estado\":\"TRASLADADO\"}"), admin);
+        assertEquals(200, actualizado.getResponse().getStatus());
+        String cuerpo = actualizado.getResponse().getContentAsString();
+        assertTrue(cuerpo.contains("\"fechaNacimiento\":\"2010-05-05\""), cuerpo);
+        assertTrue(cuerpo.contains("\"estado\":\"TRASLADADO\""), cuerpo);
     }
 
     // ==================== Representados ====================
@@ -245,11 +387,11 @@ class EstudiantesMatriculasApiTest {
     @Test
     @DisplayName("Baja lógica del vínculo: deja de verse y re-vincular lo reactiva")
     void desvincularYReactivar() throws Exception {
-        long periodo = crearPeriodo("2026", "2026-03-02", "2026-12-18");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
         long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
         long mama = crearApoderado("lucia@educa360.pe", "40000001", "Lucia");
         vincular(mama, alumno, "MADRE", true);
-        abrirPeriodo(periodo);
+        abrirAnio(anio);
 
         assertEquals(204, desvincular(mama, alumno));
         assertEquals(404, desvincular(mama, alumno), "ya estaba desvinculado");
@@ -282,8 +424,8 @@ class EstudiantesMatriculasApiTest {
     @Test
     @DisplayName("Cada apoderado sólo ve a SUS hijos")
     void apoderadoNoVeHijosAjenos() throws Exception {
-        long periodo = crearPeriodo("2026", "2026-03-02", "2026-12-18");
-        long seccion = nuevaSeccion(3, "A", periodo);
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
         long hijoA = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
         long hijoB = crearEstudiante("bruno@educa360.pe", "30000002", "Bruno");
         long mama = crearApoderado("lucia@educa360.pe", "40000001", "Lucia");
@@ -291,7 +433,7 @@ class EstudiantesMatriculasApiTest {
         vincular(mama, hijoA, "MADRE", true);
         vincular(otro, hijoB, "PADRE", true);
         matricular(hijoA, seccion);
-        abrirPeriodo(periodo);
+        abrirAnio(anio);
 
         String deMama = hijosDe("lucia@educa360.pe", "Familia1234");
         assertTrue(deMama.contains("Alma"));
@@ -307,19 +449,20 @@ class EstudiantesMatriculasApiTest {
     @Test
     @DisplayName("GET /secretaria/estudiantes trae la ficha con sección, matrícula y apoderados")
     void listarEstudiantesConFichaCompleta() throws Exception {
-        long periodo = crearPeriodo("2026", "2026-03-02", "2026-12-18");
-        long seccion = nuevaSeccion(4, "B", periodo);
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(4, "B", anio);
         long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
         long mama = crearApoderado("lucia@educa360.pe", "40000001", "Lucia");
         matricular(alumno, seccion);
         vincular(mama, alumno, "MADRE", true);
-        abrirPeriodo(periodo);
+        abrirAnio(anio);
 
         String cuerpo = listar(ESTUDIANTES);
         assertTrue(cuerpo.contains("\"email\":\"alma@educa360.pe\""));
         assertTrue(cuerpo.contains("\"estado\":\"ACTIVO\""), "estado académico");
         assertTrue(cuerpo.contains("\"seccionEtiqueta\":\"4"), "sección vigente");
-        assertTrue(cuerpo.contains("\"matriculaEstado\":\"PENDIENTE\""));
+        assertTrue(cuerpo.contains("\"situacionFinal\":\"EN_CURSO\""));
+        assertTrue(cuerpo.contains("\"fechaMatricula\""), "la ficha lleva la fecha de matrícula");
         assertTrue(cuerpo.contains("\"parentesco\":\"MADRE\""), "sus apoderados");
         assertTrue(cuerpo.contains("\"fechaNacimiento\""), "EstudianteResponse lleva la ficha");
 
@@ -328,6 +471,11 @@ class EstudiantesMatriculasApiTest {
         assertFalse(listar(ESTUDIANTES + "?q=no-existe").contains("alma@educa360.pe"));
         assertFalse(listar(ESTUDIANTES + "?estado=EGRESADO").contains("alma@educa360.pe"));
         assertTrue(listar(ESTUDIANTES + "?estado=ACTIVO").contains("alma@educa360.pe"));
+
+        assertEquals(200, conToken(get(ESTUDIANTES + "/" + alumno), admin)
+                .getResponse().getStatus(), "la ficha individual responde 200");
+        assertEquals(404, conToken(get(ESTUDIANTES + "/999999"), admin)
+                .getResponse().getStatus(), "alumno inexistente");
     }
 
     @Test
@@ -352,11 +500,11 @@ class EstudiantesMatriculasApiTest {
     void estudianteVeLosCursosDeSuSeccion() throws Exception {
         long docente = crearDocente("doc1@educa360.pe", "20000011");
         long materia = crearMateria("Matematicas");
-        long periodo = crearPeriodo("2026", "2026-03-02", "2026-12-18");
-        long seccion = nuevaSeccion(3, "A", periodo);
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
         habilitar(docente, "[%d]".formatted(materia));
         nuevoCurso(docente, materia, seccion);
-        abrirPeriodo(periodo);
+        abrirAnio(anio);
 
         String tokenSinMatricula;
         long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
@@ -378,20 +526,20 @@ class EstudiantesMatriculasApiTest {
     @Test
     @DisplayName("/auth/me trae la sección del ESTUDIANTE y los hijos del APODERADO")
     void meTraeElPerfilDeEstudianteYApoderado() throws Exception {
-        long periodo = crearPeriodo("2026", "2026-03-02", "2026-12-18");
-        long seccion = nuevaSeccion(3, "A", periodo);
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
         long alumno = crearEstudiante("alma@educa360.pe", "30000001", "Alma");
         long mama = crearApoderado("lucia@educa360.pe", "40000001", "Lucia");
         vincular(mama, alumno, "MADRE", true);
         matricular(alumno, seccion);
-        abrirPeriodo(periodo);
+        abrirAnio(anio);
 
         String meAlumno = conToken(get("/api/v1/auth/me"),
                         loginYToken("alma@educa360.pe", "Alumno1234"))
                 .getResponse().getContentAsString();
         assertTrue(meAlumno.contains("\"seccionEtiqueta\":\"3"),
                 "el estudiante ve su sección: " + meAlumno);
-        assertTrue(meAlumno.contains("\"periodoNombre\":\"2026\""));
+        assertTrue(meAlumno.contains("\"anioNombre\":"), "el año vigente del alumno: " + meAlumno);
 
         String meMama = conToken(get("/api/v1/auth/me"),
                         loginYToken("lucia@educa360.pe", "Familia1234"))
@@ -425,7 +573,8 @@ class EstudiantesMatriculasApiTest {
                 .getResponse().getStatus(), "un estudiante no consulta el censo");
         assertEquals(403, conToken(post(MATRICULAS)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"estudianteId\":%d,\"seccionId\":1}".formatted(alumno)), tokenMama)
+                        .content("{\"estudianteId\":%d,\"seccionId\":1,\"fechaMatricula\":\"2026-02-20\"}"
+                                .formatted(alumno)), tokenMama)
                 .getResponse().getStatus(), "un apoderado no matricula");
 
         // ADMIN sí gestiona (zona secretaria con ADMIN como superconjunto)
@@ -453,22 +602,23 @@ class EstudiantesMatriculasApiTest {
         return tokenDe(resultado.getResponse().getContentAsString());
     }
 
-    private long crearPeriodo(String nombre, String inicio, String fin) throws Exception {
-        return idDe(crear("/api/v1/admin/periodos", """
-                {"nombre":"%s","fechaInicio":"%s","fechaFin":"%s"}""".formatted(nombre, inicio, fin)));
+    private long crearAnio(int anio, String nombre, String inicio) throws Exception {
+        return idDe(crear("/api/v1/admin/anios", """
+                {"anio":%d,"nombre":"%s","fechaInicio":"%s"}"""
+                .formatted(anio, nombre, inicio)));
     }
 
-    private int abrirPeriodo(long id) throws Exception {
-        return conToken(patch("/api/v1/admin/periodos/" + id + "/estado")
+    private int abrirAnio(long id) throws Exception {
+        return conToken(patch("/api/v1/admin/anios/" + id + "/estado")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"estado\":\"ABIERTO\"}"), admin)
                 .getResponse().getStatus();
     }
 
-    private long nuevaSeccion(int grado, String letra, long periodoId) throws Exception {
+    private long nuevaSeccion(int grado, String letra, long anioId) throws Exception {
         return idDe(crear("/api/v1/admin/secciones",
-                "{\"grado\":%d,\"letra\":\"%s\",\"aula\":\"A-101\",\"tutorId\":null,\"periodoId\":%d}"
-                        .formatted(grado, letra, periodoId)));
+                "{\"grado\":%d,\"letra\":\"%s\",\"aula\":\"A-101\",\"tutorId\":null,\"anioId\":%d}"
+                        .formatted(grado, letra, anioId)));
     }
 
     /** Id del PERFIL Estudiante (la respuesta de alta trae el id de la cuenta). */
@@ -497,18 +647,8 @@ class EstudiantesMatriculasApiTest {
 
     private int matricular(long estudianteId, long seccionId) throws Exception {
         return crear(MATRICULAS, """
-                {"estudianteId":%d,"seccionId":%d}""".formatted(estudianteId, seccionId))
-                .getResponse().getStatus();
-    }
-
-    private long idDeUltimaMatricula() throws Exception {
-        return matriculaRepository.findAll().get(0).getId();
-    }
-
-    private int cambiarEstadoDeMatricula(long id, String estado) throws Exception {
-        return conToken(patch(MATRICULAS + "/" + id + "/estado")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"estado\":\"%s\"}".formatted(estado)), admin)
+                {"estudianteId":%d,"seccionId":%d,"fechaMatricula":"2026-02-20"}"""
+                .formatted(estudianteId, seccionId))
                 .getResponse().getStatus();
     }
 

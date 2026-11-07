@@ -13,7 +13,7 @@ import java.util.List;
  * Nace aquí, NO reutiliza UsuarioResponse: esa es la vista de cuentas de
  * ADMIN; ésta es la de alumnos con su sección, matrícula y apoderados.
  *
- * Sección y matrícula son los del período ABIERTO (el vigente); null si el
+ * Sección y matrícula son las del año ABIERTO (el vigente); null si el
  * alumno aún no está matriculado.
  */
 public record EstudianteResponse(
@@ -26,8 +26,9 @@ public record EstudianteResponse(
         Estudiante.EstadoEstudiante estado,
         boolean activo,
         String seccionEtiqueta,
-        String periodoNombre,
-        Matricula.Estado matriculaEstado,
+        String anioNombre,
+        LocalDate fechaMatricula,
+        Matricula.SituacionFinal situacionFinal,
         List<Vinculo> apoderados
 ) {
     /** Apoderado vinculado y su parentesco (sólo vínculos activos). */
