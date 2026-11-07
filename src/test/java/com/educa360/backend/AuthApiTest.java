@@ -297,12 +297,33 @@ class AuthApiTest {
         String tokenEstudiante = tokenDe(enviarPost("/api/v1/auth/login",
                 loginBody("lucia@educa360.pe", "Lucia12345"), null).getResponse().getContentAsString());
 
-        assertEquals(200, getConToken("/api/v1/demo/admin", tokenAdmin));
-        assertEquals(403, getConToken("/api/v1/demo/admin", tokenEstudiante));
-        assertEquals(200, getConToken("/api/v1/demo/estudiante", tokenEstudiante));
-        assertEquals(403, getConToken("/api/v1/demo/secretaria", tokenAdmin));
-        assertEquals(200, getConToken("/api/v1/demo/authenticated", tokenEstudiante));
-        assertEquals(401, getConToken("/api/v1/demo/authenticated", null));
+        // La secretaria también la crea el ADMIN (su perfil todavía no tiene campos)
+        assertEquals(201, enviarPost("/api/v1/admin/secretarias", """
+                        {"usuario":{"email":"sofia@educa360.pe","password":"Sofia12345",
+                                    "nombres":"Sofia","apellidos":"Quispe","dni":"11223344"},
+                         "perfil":{}}""", tokenAdmin)
+                .getResponse().getStatus());
+        String tokenSecretaria = tokenDe(enviarPost("/api/v1/auth/login",
+                loginBody("sofia@educa360.pe", "Sofia12345"), null).getResponse().getContentAsString());
+
+        // Zona ADMIN: sólo ADMIN
+        assertEquals(200, getConToken("/api/v1/admin/usuarios", tokenAdmin));
+        assertEquals(403, getConToken("/api/v1/admin/usuarios", tokenEstudiante));
+        assertEquals(403, getConToken("/api/v1/admin/usuarios", tokenSecretaria));
+
+        // Zona SECRETARIA: sólo SECRETARIA
+        assertEquals(200, getConToken("/api/v1/secretaria/tickets", tokenSecretaria));
+        assertEquals(403, getConToken("/api/v1/secretaria/tickets", tokenAdmin));
+        assertEquals(403, getConToken("/api/v1/secretaria/tickets", tokenEstudiante));
+
+        // Zona ESTUDIANTE: sólo ESTUDIANTE
+        assertEquals(200, getConToken("/api/v1/estudiante/cursos", tokenEstudiante));
+        assertEquals(403, getConToken("/api/v1/estudiante/cursos", tokenAdmin));
+        assertEquals(403, getConToken("/api/v1/estudiante/cursos", tokenSecretaria));
+
+        // Cualquier usuario autenticado; sin token, 401
+        assertEquals(200, getConToken("/api/v1/auth/me", tokenEstudiante));
+        assertEquals(401, getConToken("/api/v1/auth/me", null));
     }
 
     // ==================== Helpers ====================
