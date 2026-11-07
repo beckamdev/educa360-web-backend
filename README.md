@@ -71,6 +71,21 @@ docker compose ps                # estado de los servicios
 docker compose down              # detiene los contenedores (conserva la BD)
 ```
 
+## Primer usuario (base vacía)
+
+Con la base de datos vacía (por ejemplo, en producción sin el seed), el primer
+registro crea la cuenta `ADMIN`:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@educa360.pe","password":"Admin12345","nombres":"Ana","apellidos":"Ruiz","dni":"10000001"}'
+```
+
+`telefonos` es opcional. En cuanto existe una cuenta, `/auth/register` responde
+`403`: las altas posteriores las hace un `ADMIN` desde `/api/v1/admin/usuarios`
+y, para alumnos y familias, desde `/api/v1/secretaria/...`.
+
 ## Variables de entorno
 
 Todas las variables están documentadas en [`.env.example`](.env.example).
@@ -153,6 +168,34 @@ src/main/java/com/educa360/backend/
 ├── security/    # JWT, RBAC y CORS
 └── service/     # reglas de negocio transaccionales
 ```
+
+## Errores
+
+Todas las respuestas de error usan el cuerpo `ApiError`:
+
+```json
+{
+  "timestamp": "2026-10-14T10:00:00",
+  "status": 409,
+  "error": "Conflict",
+  "message": "El email ya está registrado",
+  "path": "/api/v1/auth/register",
+  "fields": null
+}
+```
+
+En errores de validación (`400`), `fields` trae el detalle por campo.
+
+| Código | Cuándo |
+|---|---|
+| `400` | Validación del request |
+| `401` | Falta el token o es inválido |
+| `403` | Autenticado sin permiso para la zona |
+| `404` | Recurso inexistente |
+| `409` | Conflicto con una regla de negocio |
+| `413` | Archivo supera el tamaño permitido |
+| `429` | Login bloqueado por intentos fallidos (incluye `Retry-After`) |
+| `503` | Storage no configurado o no disponible |
 
 ## Convenciones de API
 
