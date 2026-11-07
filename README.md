@@ -3,7 +3,8 @@
 API REST para la gestión académica del Colegio Nuestra Señora de Monserrat.
 
 El dominio y el roadmap viven en [`docs/CONTEXT.md`](docs/CONTEXT.md). Este README cubre
-solo el arranque técnico del proyecto.
+solo el arranque técnico del proyecto. Para publicar en producción (Railway +
+Supabase), ver [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ## Stack
 
@@ -89,7 +90,9 @@ y, para alumnos y familias, desde `/api/v1/secretaria/...`.
 ## Variables de entorno
 
 Todas las variables están documentadas en [`.env.example`](.env.example).
-El archivo `.env` **no se versiona**.
+El archivo `.env` **no se versiona**. Para producción, la plantilla es
+[`.env.production.example`](.env.production.example) (solo documentación: los
+valores reales van en el panel de Railway).
 
 | Variable | Obligatoria | Descripción |
 |---|---|---|
