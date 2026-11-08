@@ -1,5 +1,6 @@
 package com.educa360.backend.service;
 
+import com.educa360.backend.dto.ApoderadoBusquedaResponse;
 import com.educa360.backend.dto.ApoderadoResponse;
 import com.educa360.backend.dto.ApoderadoRequest;
 import com.educa360.backend.dto.HijoResponse;
@@ -12,6 +13,7 @@ import com.educa360.backend.entity.Estudiante;
 import com.educa360.backend.entity.Matricula;
 import com.educa360.backend.entity.Telefono;
 import com.educa360.backend.entity.User;
+import com.educa360.backend.exception.BadRequestException;
 import com.educa360.backend.exception.NotFoundException;
 import com.educa360.backend.repository.ApoderadoEstudianteRepository;
 import com.educa360.backend.repository.ApoderadoRepository;
@@ -134,6 +136,25 @@ public class ApoderadoService {
                 .map(apoderado -> aRespuesta(apoderado,
                         porApoderado.getOrDefault(apoderado.getId(), List.of())))
                 .toList();
+    }
+
+    /**
+     * Busca un apoderado por DNI exacto para el flujo de alta de familias.
+     *
+     * Devuelve 200 con {@code existe=false} si no hay coincidencia: para el
+     * frontend "no existe" es una rama del formulario, no un error.
+     */
+    @Transactional(readOnly = true)
+    public ApoderadoBusquedaResponse buscarPorDni(String dni) {
+        if (dni == null || !dni.matches("\\d{8}")) {
+            throw new BadRequestException("El DNI debe tener exactamente 8 dígitos");
+        }
+
+        return apoderadoRepository.findByUserDni(dni)
+                .map(apoderado -> new ApoderadoBusquedaResponse(true,
+                        aRespuesta(apoderado,
+                                vinculoRepository.findByApoderadoIdAndActivoTrue(apoderado.getId()))))
+                .orElseGet(() -> new ApoderadoBusquedaResponse(false, null));
     }
 
     // ==================== Helpers ====================

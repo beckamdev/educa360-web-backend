@@ -1,5 +1,6 @@
 package com.educa360.backend.controller;
 
+import com.educa360.backend.dto.ApoderadoBusquedaResponse;
 import com.educa360.backend.dto.ApoderadoRequest;
 import com.educa360.backend.dto.ApoderadoResponse;
 import com.educa360.backend.dto.HijoResponse;
@@ -56,6 +57,18 @@ public class ApoderadoController {
     public ResponseEntity<List<ApoderadoResponse>> listar(
             @RequestParam(required = false) String q) {
         return ResponseEntity.ok(apoderadoService.listar(q));
+    }
+
+    /**
+     * Búsqueda exacta por DNI para el alta de familias.
+     *
+     * Responde 200 con {@code existe=false} si no hay apoderado: el frontend
+     * usa esa rama para mostrar el formulario de alta del apoderado.
+     */
+    @GetMapping("/por-dni/{dni}")
+    public ResponseEntity<ApoderadoBusquedaResponse> buscarPorDni(
+            @PathVariable String dni) {
+        return ResponseEntity.ok(apoderadoService.buscarPorDni(dni));
     }
 
     /**

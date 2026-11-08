@@ -81,6 +81,7 @@ class EstudiantesMatriculasApiTest {
     private static final String ESTUDIANTES = "/api/v1/secretaria/estudiantes";
     private static final String APODERADOS = "/api/v1/secretaria/apoderados";
     private static final String MATRICULAS = "/api/v1/secretaria/matriculas";
+    private static final String FAMILIAS = "/api/v1/secretaria/familias";
 
     @Autowired
     private MockMvc mockMvc;
@@ -521,6 +522,149 @@ class EstudiantesMatriculasApiTest {
         assertTrue(cursos.contains("\"seccionEtiqueta\":\"3"));
     }
 
+    // ==================== Alta de familias ====================
+
+    @Test
+    @DisplayName("Buscar apoderado por DNI: existe=true con id de perfil, o existe=false")
+    void buscarApoderadoPorDni() throws Exception {
+        long mama = crearApoderado("lucia@educa360.pe", "40000001", "Lucia");
+
+        MvcResult encontrado = conToken(get(APODERADOS + "/por-dni/40000001"), admin);
+        assertEquals(200, encontrado.getResponse().getStatus());
+        String cuerpo = encontrado.getResponse().getContentAsString();
+        assertTrue(cuerpo.contains("\"existe\":true"), cuerpo);
+        assertEquals(mama, campoLong(cuerpo, "id"), "el id debe ser el del PERFIL: " + cuerpo);
+        assertTrue(cuerpo.contains("\"dni\":\"40000001\""), cuerpo);
+
+        MvcResult libre = conToken(get(APODERADOS + "/por-dni/49999999"), admin);
+        assertEquals(200, libre.getResponse().getStatus(), "no existir no es un error");
+        String sin = libre.getResponse().getContentAsString();
+        assertTrue(sin.contains("\"existe\":false"), sin);
+        assertTrue(sin.contains("\"apoderado\":null"), sin);
+
+        assertEquals(400, conToken(get(APODERADOS + "/por-dni/123"), admin)
+                .getResponse().getStatus(), "DNI mal formado");
+    }
+
+    @Test
+    @DisplayName("Alta de familia: crea apoderado y estudiante y los vincula")
+    void altaFamiliaCreaYVincula() throws Exception {
+        MvcResult creada = crear(FAMILIAS, """
+                {"nuevoApoderado":{"email":"lucia@educa360.pe","password":"Familia1234",
+                  "nombres":"Lucia","apellidos":"Soto","dni":"40000001","telefonos":["999888777"]},
+                 "estudiante":{"usuario":{"email":"alma@educa360.pe","password":"Alumno1234",
+                  "nombres":"Alma","apellidos":"Luna","dni":"30000001"},
+                  "fechaNacimiento":"2011-03-03"},
+                 "parentesco":"MADRE","responsablePrincipal":true}
+                """);
+        assertEquals(201, creada.getResponse().getStatus(),
+                creada.getResponse().getContentAsString());
+
+        String cuerpo = creada.getResponse().getContentAsString();
+        assertTrue(cuerpo.contains("\"apoderadoCreado\":true"), cuerpo);
+        long apoderadoId = campoLong(cuerpo, "apoderadoId");
+        long estudianteId = campoLong(cuerpo, "estudianteId");
+
+        assertEquals(1, apoderadoRepository.count());
+        assertEquals(1, estudianteRepository.count());
+        assertEquals(1, vinculoRepository.findByEstudianteIdAndActivoTrue(estudianteId).size());
+        assertTrue(vinculoRepository.findByEstudianteIdAndActivoTrue(estudianteId)
+                .get(0).isResponsablePrincipal());
+
+        String ficha = conToken(get(ESTUDIANTES + "/" + estudianteId), admin)
+                .getResponse().getContentAsString();
+        assertTrue(ficha.contains("\"id\":" + apoderadoId), ficha);
+        assertTrue(ficha.contains("Lucia Soto"), ficha);
+    }
+
+    @Test
+    @DisplayName("Alta de familia reutiliza el apoderado si el DNI ya existe")
+    void altaFamiliaReutilizaApoderadoPorDni() throws Exception {
+        long mama = crearApoderado("lucia@educa360.pe", "40000001", "Lucia");
+
+        MvcResult creada = crear(FAMILIAS, """
+                {"nuevoApoderado":{"email":"otro@educa360.pe","password":"Familia1234",
+                  "nombres":"Otro","apellidos":"Nombre","dni":"40000001"},
+                 "estudiante":{"usuario":{"email":"alma@educa360.pe","password":"Alumno1234",
+                  "nombres":"Alma","apellidos":"Luna","dni":"30000001"},
+                  "fechaNacimiento":"2011-03-03"},
+                 "parentesco":"MADRE","responsablePrincipal":true}
+                """);
+        assertEquals(201, creada.getResponse().getStatus(),
+                creada.getResponse().getContentAsString());
+
+        String cuerpo = creada.getResponse().getContentAsString();
+        assertTrue(cuerpo.contains("\"apoderadoCreado\":false"), cuerpo);
+        assertEquals(mama, campoLong(cuerpo, "apoderadoId"));
+        assertEquals(1, apoderadoRepository.count(), "no debe duplicar el apoderado");
+    }
+
+    @Test
+    @DisplayName("Alta de familia con apoderadoId existente no crea otro apoderado")
+    void altaFamiliaConApoderadoId() throws Exception {
+        long mama = crearApoderado("lucia@educa360.pe", "40000001", "Lucia");
+
+        MvcResult creada = crear(FAMILIAS, """
+                {"apoderadoId":%d,
+                 "estudiante":{"usuario":{"email":"alma@educa360.pe","password":"Alumno1234",
+                  "nombres":"Alma","apellidos":"Luna","dni":"30000001"},
+                  "fechaNacimiento":"2011-03-03"},
+                 "parentesco":"MADRE","responsablePrincipal":true}
+                """.formatted(mama));
+        assertEquals(201, creada.getResponse().getStatus(),
+                creada.getResponse().getContentAsString());
+
+        String cuerpo = creada.getResponse().getContentAsString();
+        assertTrue(cuerpo.contains("\"apoderadoCreado\":false"), cuerpo);
+        assertEquals(mama, campoLong(cuerpo, "apoderadoId"));
+        assertEquals(1, apoderadoRepository.count());
+    }
+
+    @Test
+    @DisplayName("Alta de familia exige exactamente un apoderado y prohíbe teléfonos del alumno")
+    void altaFamiliaValidaDatos() throws Exception {
+        assertEquals(400, crear(FAMILIAS, """
+                {"estudiante":{"usuario":{"email":"alma@educa360.pe","password":"Alumno1234",
+                  "nombres":"Alma","apellidos":"Luna","dni":"30000001"},
+                  "fechaNacimiento":"2011-03-03"},
+                 "parentesco":"MADRE","responsablePrincipal":true}
+                """).getResponse().getStatus(), "sin apoderado");
+
+        assertEquals(400, crear(FAMILIAS, """
+                {"apoderadoId":1,
+                 "nuevoApoderado":{"email":"lucia@educa360.pe","password":"Familia1234",
+                  "nombres":"Lucia","apellidos":"Soto","dni":"40000001"},
+                 "estudiante":{"usuario":{"email":"alma@educa360.pe","password":"Alumno1234",
+                  "nombres":"Alma","apellidos":"Luna","dni":"30000001"},
+                  "fechaNacimiento":"2011-03-03"},
+                 "parentesco":"MADRE","responsablePrincipal":true}
+                """).getResponse().getStatus(), "con ambos apoderados");
+
+        assertEquals(400, crear(FAMILIAS, """
+                {"nuevoApoderado":{"email":"lucia@educa360.pe","password":"Familia1234",
+                  "nombres":"Lucia","apellidos":"Soto","dni":"40000001"},
+                 "estudiante":{"usuario":{"email":"alma@educa360.pe","password":"Alumno1234",
+                  "nombres":"Alma","apellidos":"Luna","dni":"30000001","telefonos":["999888777"]},
+                  "fechaNacimiento":"2011-03-03"},
+                 "parentesco":"MADRE","responsablePrincipal":true}
+                """).getResponse().getStatus(), "el alumno no registra teléfonos");
+    }
+
+    @Test
+    @DisplayName("Alta de familia con un DNI que ya es de otro rol responde 409")
+    void altaFamiliaDniDeOtroRol() throws Exception {
+        crearEstudiante("alma@educa360.pe", "30000001", "Alma");
+
+        assertEquals(409, crear(FAMILIAS, """
+                {"nuevoApoderado":{"email":"lucia@educa360.pe","password":"Familia1234",
+                  "nombres":"Lucia","apellidos":"Soto","dni":"30000001"},
+                 "estudiante":{"usuario":{"email":"nuevo@educa360.pe","password":"Alumno1234",
+                  "nombres":"Nuevo","apellidos":"Alumno","dni":"30000002"},
+                  "fechaNacimiento":"2011-03-03"},
+                 "parentesco":"MADRE","responsablePrincipal":true}
+                """).getResponse().getStatus());
+    }
+
     // ==================== /auth/me por rol ====================
 
     @Test
@@ -708,6 +852,13 @@ class EstudiantesMatriculasApiTest {
         Matcher matcher = Pattern.compile("\"id\":(\\d+)")
                 .matcher(resultado.getResponse().getContentAsString());
         assertTrue(matcher.find(), "la respuesta debe traer el id");
+        return Long.parseLong(matcher.group(1));
+    }
+
+    /** Lee un campo numérico de un JSON por nombre (p. ej. apoderadoId). */
+    private long campoLong(String json, String campo) {
+        Matcher matcher = Pattern.compile("\"" + campo + "\":(\\d+)").matcher(json);
+        assertTrue(matcher.find(), "no se encontró " + campo + " en " + json);
         return Long.parseLong(matcher.group(1));
     }
 
