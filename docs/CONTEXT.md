@@ -1032,6 +1032,7 @@ docker compose up -d --build
 - El reingreso reactiva al alumno (`ACTIVO`) y su matrícula del año si sigue abierta, o crea una nueva si cambió de año.
 - Solo un responsable principal activo por alumno.
 - El apoderado no se asigna hijos: los vincula `SECRETARIA`.
+- El alta de familia puede crear el apoderado o reutilizarlo por DNI, y vincula al alumno en una sola transacción.
 - La ficha del alumno se edita de forma acotada: fecha de nacimiento y estado académico.
 - No hay módulo de pagos.
 
@@ -1044,6 +1045,8 @@ docker compose up -d --build
 | `PUT /api/v1/secretaria/estudiantes/{id}` | ADMIN, SECRETARIA | Edición acotada |
 | `PATCH /api/v1/secretaria/estudiantes/{id}/estado` | ADMIN, SECRETARIA | `ACTIVO` (reingreso), `TRASLADADO`, `RETIRADO`, `EGRESADO` |
 | `GET /api/v1/secretaria/apoderados?q=` | ADMIN, SECRETARIA | Listado con hijos |
+| `GET /api/v1/secretaria/apoderados/por-dni/{dni}` | ADMIN, SECRETARIA | `{existe, apoderado}`; 200 con `existe=false` si no está registrado |
+| `POST /api/v1/secretaria/familias` | ADMIN, SECRETARIA | Alta conjunta: crea/reutiliza apoderado, crea alumno y los vincula |
 | `GET /api/v1/secretaria/matriculas?anioId=&seccionId=&q=` | ADMIN, SECRETARIA | Matrículas del año/sección |
 | `GET /api/v1/secretaria/matriculas/{id}` | ADMIN, SECRETARIA | Detalle de matrícula |
 | `POST /api/v1/secretaria/matriculas` | ADMIN, SECRETARIA | Crea matrícula en una sección |
