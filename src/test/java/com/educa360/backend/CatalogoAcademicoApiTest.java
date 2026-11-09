@@ -80,6 +80,7 @@ class CatalogoAcademicoApiTest {
     private static final String MATERIAS = "/api/v1/admin/materias";
     private static final String SECCIONES = "/api/v1/admin/secciones";
     private static final String CURSOS = "/api/v1/admin/cursos";
+    private static final String CATALOGO_BIMESTRES = "/api/v1/bimestres";
 
     @Autowired
     private MockMvc mockMvc;
@@ -289,6 +290,62 @@ class CatalogoAcademicoApiTest {
         String cuerpo = creado.getResponse().getContentAsString();
         assertTrue(cuerpo.contains("\"nombre\":\"Bimestre I\""), "nombre derivado: " + cuerpo);
         assertTrue(cuerpo.contains("\"anioNombre\":"), "año del bimestre: " + cuerpo);
+    }
+
+    @Test
+    @DisplayName("El catálogo de bimestres es de LECTURA para todos los roles")
+    void catalogoDeBimestresParaTodosLosRoles() throws Exception {
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        crearBimestre(anio, 1, "2026-03-02", "2026-05-15");
+        crearBimestre(anio, 2, "2026-05-18", "2026-07-31");
+
+        assertEquals(401, mockMvc.perform(get(CATALOGO_BIMESTRES))
+                .andReturn().getResponse().getStatus(), "sin token no se entra");
+
+        String cuerpo = conToken(get(CATALOGO_BIMESTRES), admin)
+                .getResponse().getContentAsString();
+        assertTrue(cuerpo.contains("\"nombre\":\"Bimestre I\""), cuerpo);
+        assertTrue(cuerpo.contains("\"nombre\":\"Bimestre II\""), cuerpo);
+        assertTrue(cuerpo.contains("\"estado\":\"PLANIFICADO\""), "el estado viaja: " + cuerpo);
+        assertTrue(cuerpo.indexOf("Bimestre I") < cuerpo.indexOf("Bimestre II"),
+                "ordenados por número: " + cuerpo);
+
+        crearDocente("doc1@educa360.pe", "20000011");
+        String docente = loginYToken("doc1@educa360.pe", "Docente1234");
+        assertEquals(200, conToken(get(CATALOGO_BIMESTRES), docente).getResponse().getStatus(),
+                "el docente descubre el bimestre de su primera unidad");
+
+        assertEquals(200, conToken(get(CATALOGO_BIMESTRES), crearYTokenearEstudiante())
+                .getResponse().getStatus(), "el estudiante también lee el calendario");
+        assertEquals(200, conToken(get(CATALOGO_BIMESTRES), crearYTokenearApoderado())
+                .getResponse().getStatus(), "el apoderado también lee el calendario");
+        assertEquals(200, conToken(get(CATALOGO_BIMESTRES), crearYTokenearSecretaria())
+                .getResponse().getStatus(), "secretaría también lee el calendario");
+    }
+
+    @Test
+    @DisplayName("El catálogo filtra por año y responde 404 si el año no existe")
+    void catalogoDeBimestresFiltraPorAnio() throws Exception {
+        long anio2026 = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long anio2027 = crearAnio(2027, "Año Escolar 2027", "2027-03-01");
+        crearBimestre(anio2026, 1, "2026-03-02", "2026-05-15");
+        crearBimestre(anio2026, 2, "2026-05-18", "2026-07-31");
+        crearBimestre(anio2027, 1, "2027-03-01", "2027-05-14");
+
+        String todos = conToken(get(CATALOGO_BIMESTRES), admin)
+                .getResponse().getContentAsString();
+        assertEquals(3, veces(todos, "\"nombre\":\"Bimestre"), todos);
+        assertTrue(todos.indexOf("\"anioId\":" + anio2027) < todos.indexOf("\"anioId\":" + anio2026),
+                "el año más reciente va primero: " + todos);
+
+        String solo2026 = conToken(get(CATALOGO_BIMESTRES + "?anioId=" + anio2026), admin)
+                .getResponse().getContentAsString();
+        assertEquals(2, veces(solo2026, "\"nombre\":\"Bimestre"), solo2026);
+        assertTrue(solo2026.contains("\"anioId\":" + anio2026), solo2026);
+        assertFalse(solo2026.contains("\"anioId\":" + anio2027), solo2026);
+
+        assertEquals(404, conToken(get(CATALOGO_BIMESTRES + "?anioId=999999"), admin)
+                .getResponse().getStatus(), "año inexistente");
     }
 
     // ==================== Secciones ====================
@@ -818,6 +875,35 @@ class CatalogoAcademicoApiTest {
                  "perfil":{"fechaNacimiento":"2011-03-03"}}""");
         assertEquals(201, creado.getResponse().getStatus());
         return loginYToken("alu@educa360.pe", "Alumno1234");
+    }
+
+    private String crearYTokenearApoderado() throws Exception {
+        MvcResult creado = crear("/api/v1/secretaria/apoderados", """
+                {"usuario":{"email":"papa@educa360.pe","password":"Apoderado1234","nombres":"Pablo",
+                            "apellidos":"Soto","dni":"40000001"},
+                 "perfil":{}}""");
+        assertEquals(201, creado.getResponse().getStatus());
+        return loginYToken("papa@educa360.pe", "Apoderado1234");
+    }
+
+    private String crearYTokenearSecretaria() throws Exception {
+        MvcResult creado = crear("/api/v1/admin/secretarias", """
+                {"usuario":{"email":"secre@educa360.pe","password":"Secretaria1234","nombres":"Sara",
+                            "apellidos":"Diaz","dni":"50000001"},
+                 "perfil":{}}""");
+        assertEquals(201, creado.getResponse().getStatus());
+        return loginYToken("secre@educa360.pe", "Secretaria1234");
+    }
+
+    /** Cuenta cuántas veces aparece un texto (para contar elementos del JSON). */
+    private int veces(String texto, String buscado) {
+        int contador = 0;
+        int desde = 0;
+        while ((desde = texto.indexOf(buscado, desde)) != -1) {
+            contador++;
+            desde += buscado.length();
+        }
+        return contador;
     }
 
     private String loginYToken(String email, String password) throws Exception {

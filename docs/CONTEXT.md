@@ -978,6 +978,7 @@ docker compose up -d --build
 - Solo un año `ABIERTO` y solo un bimestre `ABIERTO`.
 - Un año `PLANIFICADO` permite preparar estructura y es editable; `CERRADO` es solo lectura.
 - `Bimestre` no se solapa y vive dentro del año.
+- El catálogo de bimestres es de **lectura para todos los roles** (`GET /api/v1/bimestres`): el docente necesita el id para crear su primera unidad.
 - `Seccion` es única por `(año, grado, letra)`.
 - `Curso` es único por `(materia, sección)`.
 - Materia activa y habilitada al docente.
@@ -994,6 +995,7 @@ docker compose up -d --build
 | `GET/POST /api/v1/admin/anios/{id}/bimestres` | ADMIN | Bimestres del año |
 | `PUT /api/v1/admin/bimestres/{id}` | ADMIN | Edición |
 | `PATCH /api/v1/admin/bimestres/{id}/estado` | ADMIN | Abrir/cerrar |
+| `GET /api/v1/bimestres?anioId=` | Todos | Catálogo de solo lectura; 404 si el año no existe |
 | `GET/POST /api/v1/admin/materias` | ADMIN | Catálogo |
 | `PUT /api/v1/admin/materias/{id}` | ADMIN | Edición |
 | `PATCH /api/v1/admin/materias/{id}/activa` | ADMIN | Archivar/reactivar |
@@ -1077,6 +1079,7 @@ docker compose up -d --build
 - Solo el docente del curso crea/edita sus unidades.
 - La unidad pertenece a un bimestre del mismo año que la sección del curso.
 - Se puede planificar en bimestre `PLANIFICADO` o `ABIERTO`; no en `CERRADO`.
+- El docente descubre los bimestres disponibles con `GET /api/v1/bimestres` (solo lectura, todos los roles).
 - El alumno y el apoderado solo ven unidades `PUBLICADA`.
 - Los contenidos se reordenan con un endpoint bulk.
 - No se elimina una unidad con calificaciones o contenidos con materiales.

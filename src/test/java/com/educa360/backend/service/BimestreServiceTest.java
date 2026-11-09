@@ -154,6 +154,34 @@ class BimestreServiceTest {
                 servicio.cambiarEstado(10L, Bimestre.Estado.ABIERTO).estado());
     }
 
+    @Test
+    @DisplayName("El catálogo sin año ordena del año más reciente al más antiguo")
+    void catalogoOrdenaPorAnioDescendente() {
+        AnioEscolar anterior = new AnioEscolar(2025, "Año Escolar 2025", LocalDate.of(2025, 3, 3));
+        anterior.setId(2L);
+        Bimestre b2025 = new Bimestre(anterior, 2,
+                LocalDate.of(2025, 5, 19), LocalDate.of(2025, 7, 25));
+        b2025.setId(10L);
+        Bimestre b2026 = bimestre(20L, 1, Bimestre.Estado.PLANIFICADO);
+        when(bimestreRepository.findAll()).thenReturn(List.of(b2025, b2026));
+
+        List<BimestreResponse> catalogo = servicio.catalogo(null);
+
+        assertEquals(List.of(20L, 10L),
+                catalogo.stream().map(BimestreResponse::id).toList(),
+                "primero el año 2026 y luego el 2025");
+        assertEquals("Bimestre I", catalogo.get(0).nombre());
+    }
+
+    @Test
+    @DisplayName("El catálogo con año reutiliza el listado del año (404 si no existe)")
+    void catalogoConAnioDelega() {
+        when(anioService.buscar(1L)).thenReturn(anio);
+        when(bimestreRepository.findByAnioIdOrderByNumeroAsc(1L)).thenReturn(List.of());
+
+        assertEquals(List.of(), servicio.catalogo(1L));
+    }
+
     private Bimestre bimestre(Long id, int numero, Bimestre.Estado estado) {
         Bimestre bimestre = new Bimestre(anio, numero,
                 LocalDate.of(2026, 3, 2), LocalDate.of(2026, 5, 15));

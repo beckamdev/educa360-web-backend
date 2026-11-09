@@ -11,6 +11,7 @@ import com.educa360.backend.repository.BimestreRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -49,6 +50,29 @@ public class BimestreService {
     public List<BimestreResponse> listar(Long anioId) {
         anioService.buscar(anioId); // 404 si el año no existe
         return bimestreRepository.findByAnioIdOrderByNumeroAsc(anioId).stream()
+                .map(BimestreResponse::desde)
+                .toList();
+    }
+
+    /**
+     * Catálogo de bimestres de solo lectura para cualquier rol autenticado.
+     *
+     * Sin {@code anioId} devuelve todos (año más reciente primero); con
+     * {@code anioId} reutiliza {@link #listar(Long)} y responde 404 si el año
+     * no existe.
+     *
+     * Existe porque el docente necesita el id del bimestre para crear su
+     * primera unidad y no puede descubrirlo desde sus propios endpoints.
+     */
+    @Transactional(readOnly = true)
+    public List<BimestreResponse> catalogo(Long anioId) {
+        if (anioId != null) {
+            return listar(anioId);
+        }
+        return bimestreRepository.findAll().stream()
+                .sorted(Comparator.comparing((Bimestre bimestre) -> bimestre.getAnio().getAnio())
+                        .reversed()
+                        .thenComparing(Bimestre::getNumero))
                 .map(BimestreResponse::desde)
                 .toList();
     }
