@@ -74,8 +74,7 @@ public class SupabaseStorageService implements StorageService {
                 throw new StorageUnavailableException(
                         "Storage no devolvió una URL firmada");
             }
-            String url = firmada.toString();
-            return url.startsWith("http") ? url : baseUrl + url;
+            return urlFirmada(firmada.toString());
         } catch (RestClientResponseException ex) {
             throw new StorageUnavailableException(
                     "No se pudo firmar la descarga: " + ex.getStatusCode(), ex);
@@ -99,6 +98,29 @@ public class SupabaseStorageService implements StorageService {
         } catch (RuntimeException ex) {
             log.warn("Storage no pudo eliminar {}/{}", bucket, path, ex);
         }
+    }
+
+    /**
+     * Normaliza la URL firmada que devuelve Supabase.
+     *
+     * Supabase responde con una ruta RELATIVA que ya incluye
+     * {@code /object/sign/...} pero NO el prefijo {@code /storage/v1}:
+     *
+     * <pre>{"signedURL":"/object/sign/materiales/1/guia.pdf?token=..."}</pre>
+     *
+     * Concatenarla directamente a {@code baseUrl} producía
+     * {@code https://proyecto.supabase.co/object/sign/...}, que Supabase
+     * rechaza con 404 ("requested path is invalid"). Aquí se agrega el
+     * prefijo una sola vez y se respeta una URL absoluta si ya viniera así.
+     */
+    private String urlFirmada(String firmada) {
+        if (firmada.startsWith("http://") || firmada.startsWith("https://")) {
+            return firmada;
+        }
+        String relativa = firmada.startsWith("/") ? firmada : "/" + firmada;
+        return relativa.startsWith("/storage/v1/")
+                ? baseUrl + relativa
+                : baseUrl + "/storage/v1" + relativa;
     }
 
     private RestClient client() {
