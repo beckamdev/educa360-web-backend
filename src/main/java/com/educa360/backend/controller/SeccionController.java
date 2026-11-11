@@ -1,7 +1,9 @@
 package com.educa360.backend.controller;
 
+import com.educa360.backend.dto.HorarioSeccionResponse;
 import com.educa360.backend.dto.SeccionRequest;
 import com.educa360.backend.dto.SeccionResponse;
+import com.educa360.backend.service.CursoService;
 import com.educa360.backend.service.SeccionService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -23,9 +25,11 @@ import java.util.List;
 public class SeccionController {
 
     private final SeccionService seccionService;
+    private final CursoService cursoService;
 
-    public SeccionController(SeccionService seccionService) {
+    public SeccionController(SeccionService seccionService, CursoService cursoService) {
         this.seccionService = seccionService;
+        this.cursoService = cursoService;
     }
 
     /** Listado completo, o sólo las de un año con ?anioId=. */
@@ -43,5 +47,14 @@ public class SeccionController {
     public ResponseEntity<SeccionResponse> actualizar(
             @PathVariable Long id, @Valid @RequestBody SeccionRequest request) {
         return ResponseEntity.ok(seccionService.actualizar(id, request));
+    }
+
+    /**
+     * Horario completo de la sección: todos los bloques de sus cursos, con
+     * materia y docente, ordenados por día y hora. Una sola petición.
+     */
+    @GetMapping("/{id}/horario")
+    public ResponseEntity<List<HorarioSeccionResponse>> listarHorario(@PathVariable Long id) {
+        return ResponseEntity.ok(cursoService.listarHorarioDeSeccion(id));
     }
 }

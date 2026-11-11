@@ -4,6 +4,7 @@ import com.educa360.backend.dto.CursoRequest;
 import com.educa360.backend.dto.CursoResponse;
 import com.educa360.backend.dto.HorarioBloqueResponse;
 import com.educa360.backend.dto.HorarioRequest;
+import com.educa360.backend.dto.HorarioSeccionResponse;
 import com.educa360.backend.entity.Curso;
 import com.educa360.backend.entity.Docente;
 import com.educa360.backend.entity.Estudiante;
@@ -26,6 +27,7 @@ import com.educa360.backend.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -217,6 +219,24 @@ public class CursoService {
         }
         return horarioRepository.findByCursoId(cursoId).stream()
                 .map(HorarioBloqueResponse::desde)
+                .toList();
+    }
+
+    /**
+     * Horario completo de una SECCIÓN: todos los bloques de sus cursos en una
+     * sola petición, ordenados por día (LUNES→SÁBADO) y hora de inicio.
+     *
+     * 404 si la sección no existe. La consulta trae materia y docente con
+     * EntityGraph para no caer en N+1 (open-in-view=false).
+     */
+    @Transactional(readOnly = true)
+    public List<HorarioSeccionResponse> listarHorarioDeSeccion(Long seccionId) {
+        seccionService.buscar(seccionId); // 404 si no existe
+        return horarioRepository.findByCursoSeccionId(seccionId).stream()
+                .sorted(Comparator
+                        .comparingInt((HorarioBloque bloque) -> bloque.getDia().ordinal())
+                        .thenComparing(HorarioBloque::getHoraInicio))
+                .map(HorarioSeccionResponse::desde)
                 .toList();
     }
 

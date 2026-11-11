@@ -1001,6 +1001,7 @@ docker compose up -d --build
 | `PATCH /api/v1/admin/materias/{id}/activa` | ADMIN | Archivar/reactivar |
 | `GET/POST /api/v1/admin/secciones?anioId=` | ADMIN | Secciones del año |
 | `PUT /api/v1/admin/secciones/{id}` | ADMIN | Edición |
+| `GET /api/v1/admin/secciones/{id}/horario` | ADMIN | Horario completo de la sección en una sola petición |
 | `GET/PUT /api/v1/admin/docentes/{id}/materias` | ADMIN | Habilitaciones |
 | `GET/POST /api/v1/admin/cursos?seccionId=&docenteId=` | ADMIN | Cursos |
 | `DELETE /api/v1/admin/cursos/{id}` | ADMIN | Baja si no tiene historia |
@@ -1016,6 +1017,7 @@ docker compose up -d --build
 - El re-PUT idéntico de horario es un no-op `200`.
 - Los solapes de horario devuelven `409`.
 - El `PUT` de horario de un curso con asistencias devuelve `409`.
+- El horario de una sección se lee completo en `GET /admin/secciones/{id}/horario`, ordenado por día (LUNES→SÁBADO) y hora.
 
 ---
 

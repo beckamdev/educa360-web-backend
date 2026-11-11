@@ -666,6 +666,67 @@ class CatalogoAcademicoApiTest {
     }
 
     @Test
+    @DisplayName("El horario de una SECCIÓN llega en una sola petición, ordenado por día y hora")
+    void horarioDeSeccionEnUnaSolaPeticion() throws Exception {
+        long dana = crearDocente("doc1@educa360.pe", "20000011");
+        long elva = crearDocente("doc2@educa360.pe", "20000012");
+        long matematicas = crearMateria("Matematicas");
+        long fisica = crearMateria("Fisica");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
+        habilitar(dana, "[%d]".formatted(matematicas));
+        habilitar(elva, "[%d]".formatted(fisica));
+        long cursoMate = nuevoCurso(dana, matematicas, seccion);
+        long cursoFisica = nuevoCurso(elva, fisica, seccion);
+
+        // Se insertan en orden NO cronológico a propósito.
+        assertEquals(200, putHorario(cursoMate, """
+                {"bloques":[
+                  {"dia":"MIERCOLES","horaInicio":"10:00","horaFin":"11:00"},
+                  {"dia":"LUNES","horaInicio":"09:00","horaFin":"10:00"},
+                  {"dia":"LUNES","horaInicio":"08:00","horaFin":"09:00"}]}"""));
+        assertEquals(200, putHorario(cursoFisica, """
+                {"bloques":[{"dia":"MARTES","horaInicio":"08:00","horaFin":"09:00"}]}"""));
+
+        MvcResult respuesta = conToken(get(SECCIONES + "/" + seccion + "/horario"), admin);
+        assertEquals(200, respuesta.getResponse().getStatus(),
+                respuesta.getResponse().getContentAsString());
+        String cuerpo = respuesta.getResponse().getContentAsString();
+
+        assertEquals(4, veces(cuerpo, "\"bloqueId\":"), "los bloques de ambos cursos: " + cuerpo);
+        assertTrue(cuerpo.contains("\"materiaNombre\":\"Matematicas\""), cuerpo);
+        assertTrue(cuerpo.contains("\"materiaNombre\":\"Fisica\""), cuerpo);
+        assertTrue(cuerpo.contains("\"docenteNombre\":\"Dana Perez\""), cuerpo);
+        assertTrue(cuerpo.contains("\"cursoId\":" + cursoMate), cuerpo);
+        assertTrue(cuerpo.contains("\"cursoId\":" + cursoFisica), cuerpo);
+
+        int lunes8 = cuerpo.indexOf("\"dia\":\"LUNES\",\"horaInicio\":\"08:00\"");
+        int lunes9 = cuerpo.indexOf("\"dia\":\"LUNES\",\"horaInicio\":\"09:00\"");
+        int martes = cuerpo.indexOf("\"dia\":\"MARTES\"");
+        int miercoles = cuerpo.indexOf("\"dia\":\"MIERCOLES\"");
+        assertTrue(lunes8 >= 0 && lunes8 < lunes9 && lunes9 < martes && martes < miercoles,
+                "orden por día (LUNES→SÁBADO) y hora: " + cuerpo);
+    }
+
+    @Test
+    @DisplayName("Horario de sección: vacío [], 404 si no existe y 403 para no-ADMIN")
+    void horarioDeSeccionVacio404Y403() throws Exception {
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
+
+        String vacio = conToken(get(SECCIONES + "/" + seccion + "/horario"), admin)
+                .getResponse().getContentAsString();
+        assertEquals("[]", vacio, "una sección sin cursos ni bloques");
+
+        assertEquals(404, conToken(get(SECCIONES + "/999999/horario"), admin)
+                .getResponse().getStatus(), "sección inexistente");
+
+        String estudiante = crearYTokenearEstudiante();
+        assertEquals(403, conToken(get(SECCIONES + "/" + seccion + "/horario"), estudiante)
+                .getResponse().getStatus(), "el horario de sección es de ADMIN");
+    }
+
+    @Test
     @DisplayName("GET /admin/docentes expone el id de PERFIL con título y materias")
     void listarDocentesExponeElPerfilId() throws Exception {
         long dana = crearDocente("doc1@educa360.pe", "20000011");
