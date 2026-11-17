@@ -2,6 +2,7 @@ package com.educa360.backend.controller;
 
 import com.educa360.backend.dto.AsistenciaBulkRequest;
 import com.educa360.backend.dto.AsistenciaClaseResponse;
+import com.educa360.backend.dto.AsistenciaDiaResumenResponse;
 import com.educa360.backend.service.AsistenciaService;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -55,5 +56,18 @@ public class DocenteAsistenciaController {
             Authentication authentication) {
         return ResponseEntity.ok(
                 asistenciaService.registrar(authentication.getName(), cursoId, datos));
+    }
+
+    /**
+     * Resumen del día: todos los bloques del docente en esa fecha con cuántos
+     * alumnos llevan registrados y qué falta por marcar. Evita una llamada por
+     * bloque para pintar el avance.
+     */
+    @GetMapping("/asistencias/resumen")
+    public ResponseEntity<AsistenciaDiaResumenResponse> resumenDelDia(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha,
+            Authentication authentication) {
+        return ResponseEntity.ok(
+                asistenciaService.resumenDelDia(authentication.getName(), fecha));
     }
 }
