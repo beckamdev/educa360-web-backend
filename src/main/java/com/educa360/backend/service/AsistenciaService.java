@@ -1,9 +1,11 @@
 package com.educa360.backend.service;
 
 import com.educa360.backend.dto.AsistenciaAlumnoResponse;
+import com.educa360.backend.dto.AsistenciaBloqueResumenResponse;
 import com.educa360.backend.dto.AsistenciaBulkRequest;
 import com.educa360.backend.dto.AsistenciaClaseResponse;
 import com.educa360.backend.dto.AsistenciaDetalleResponse;
+import com.educa360.backend.dto.AsistenciaDiaResumenResponse;
 import com.educa360.backend.dto.AsistenciaItemRequest;
 import com.educa360.backend.dto.AsistenciaResumenResponse;
 import com.educa360.backend.entity.AnioEscolar;
@@ -196,6 +198,76 @@ public class AsistenciaService {
 
         asistenciaRepository.flush();
         return construirClase(curso, bloque, fecha);
+    }
+
+    /**
+     * Resumen del día: todos los bloques del docente en esa fecha con el
+     * avance de cada uno. Una consulta de bloques, una de conteos y una de
+     * tamaños de sección; nunca una hoja por bloque.
+     *
+     * Solo cuenta bloques del año calendario de {@code fecha}: el horario de
+     * años anteriores no se mezcla con el vigente. Los domingos no hay
+     * {@link DiaSemana} y se devuelve la lista vacía.
+     */
+    @Transactional(readOnly = true)
+    public AsistenciaDiaResumenResponse resumenDelDia(String email, LocalDate fecha) {
+        Docente docente = docenteDe(email);
+        DiaSemana dia = diaDe(fecha);
+        if (dia == null) {
+            return new AsistenciaDiaResumenResponse(fecha, null, 0, 0, List.of());
+        }
+
+        List<HorarioBloque> bloques = horarioRepository
+                .findByCursoDocenteId(docente.getId()).stream()
+                .filter(bloque -> bloque.getDia() == dia)
+                .filter(bloque -> bloque.getCurso().getSeccion().getAnio().getAnio()
+                        == fecha.getYear())
+                .sorted(Comparator
+                        .comparing(HorarioBloque::getHoraInicio)
+                        .thenComparing(bloque -> bloque.getCurso().getMateria().getNombre()))
+                .toList();
+        if (bloques.isEmpty()) {
+            return new AsistenciaDiaResumenResponse(fecha, dia, 0, 0, List.of());
+        }
+
+        Set<Long> bloqueIds = bloques.stream()
+                .map(HorarioBloque::getId)
+                .collect(Collectors.toSet());
+        Map<Long, Map<Asistencia.Estado, Long>> conteos = asistenciaRepository
+                .contarPorBloquesYFecha(bloqueIds, fecha).stream()
+                .collect(Collectors.groupingBy(
+                        AsistenciaRepository.ConteoBloqueEstado::getBloqueId,
+                        Collectors.toMap(
+                                AsistenciaRepository.ConteoBloqueEstado::getEstado,
+                                AsistenciaRepository.ConteoBloqueEstado::getTotal)));
+
+        Set<Long> seccionIds = bloques.stream()
+                .map(bloque -> bloque.getCurso().getSeccion().getId())
+                .collect(Collectors.toSet());
+        Map<Long, Long> alumnosPorSeccion = matriculaService.contarAlumnosPorSeccion(seccionIds);
+
+        List<AsistenciaBloqueResumenResponse> filas = bloques.stream()
+                .map(bloque -> filaDelResumen(bloque,
+                        conteos.getOrDefault(bloque.getId(), Map.of()),
+                        alumnosPorSeccion.getOrDefault(
+                                bloque.getCurso().getSeccion().getId(), 0L)))
+                .toList();
+
+        int completos = (int) filas.stream()
+                .filter(fila -> fila.pendientes() == 0)
+                .count();
+        return new AsistenciaDiaResumenResponse(fecha, dia, filas.size(), completos, filas);
+    }
+
+    private AsistenciaBloqueResumenResponse filaDelResumen(
+            HorarioBloque bloque, Map<Asistencia.Estado, Long> conteos, long totalAlumnos) {
+        return AsistenciaBloqueResumenResponse.desde(
+                bloque,
+                (int) totalAlumnos,
+                conteos.getOrDefault(Asistencia.Estado.PRESENTE, 0L).intValue(),
+                conteos.getOrDefault(Asistencia.Estado.TARDANZA, 0L).intValue(),
+                conteos.getOrDefault(Asistencia.Estado.JUSTIFICADA, 0L).intValue(),
+                conteos.getOrDefault(Asistencia.Estado.FALTA, 0L).intValue());
     }
 
     @Transactional(readOnly = true)
