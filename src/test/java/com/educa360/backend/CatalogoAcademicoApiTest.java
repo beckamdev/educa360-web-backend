@@ -1,6 +1,7 @@
 package com.educa360.backend;
 
 import com.educa360.backend.repository.AnioEscolarRepository;
+import com.educa360.backend.repository.ApoderadoEstudianteRepository;
 import com.educa360.backend.repository.ApoderadoRepository;
 import com.educa360.backend.repository.BimestreRepository;
 import com.educa360.backend.repository.CursoRepository;
@@ -8,6 +9,7 @@ import com.educa360.backend.repository.DocenteRepository;
 import com.educa360.backend.repository.EstudianteRepository;
 import com.educa360.backend.repository.HorarioBloqueRepository;
 import com.educa360.backend.repository.MateriaRepository;
+import com.educa360.backend.repository.MatriculaRepository;
 import com.educa360.backend.repository.SeccionRepository;
 import com.educa360.backend.repository.SecretariaRepository;
 import com.educa360.backend.repository.UserRepository;
@@ -81,6 +83,10 @@ class CatalogoAcademicoApiTest {
     private static final String SECCIONES = "/api/v1/admin/secciones";
     private static final String CURSOS = "/api/v1/admin/cursos";
     private static final String CATALOGO_BIMESTRES = "/api/v1/bimestres";
+    private static final String ESTUDIANTE_HORARIO = "/api/v1/estudiante/horario";
+    private static final String APODERADO_HIJOS = "/api/v1/apoderado/hijos";
+    private static final String MATRICULAS = "/api/v1/secretaria/matriculas";
+    private static final String APODERADOS = "/api/v1/secretaria/apoderados";
 
     @Autowired
     private MockMvc mockMvc;
@@ -118,6 +124,12 @@ class CatalogoAcademicoApiTest {
     @Autowired
     private ApoderadoRepository apoderadoRepository;
 
+    @Autowired
+    private ApoderadoEstudianteRepository vinculoRepository;
+
+    @Autowired
+    private MatriculaRepository matriculaRepository;
+
     private String admin;
 
     @BeforeEach
@@ -125,6 +137,8 @@ class CatalogoAcademicoApiTest {
         // Orden de borrado por las FK: lo hijo primero
         horarioRepository.deleteAll();
         cursoRepository.deleteAll();
+        matriculaRepository.deleteAll(); // referencia sección y estudiante
+        vinculoRepository.deleteAll(); // referencia apoderado y estudiante
         seccionRepository.deleteAll();
         docenteRepository.deleteAll(); // con ella se van las filas de la join docente_materia
         materiaRepository.deleteAll();
@@ -700,8 +714,8 @@ class CatalogoAcademicoApiTest {
         assertTrue(cuerpo.contains("\"cursoId\":" + cursoMate), cuerpo);
         assertTrue(cuerpo.contains("\"cursoId\":" + cursoFisica), cuerpo);
 
-        int lunes8 = cuerpo.indexOf("\"dia\":\"LUNES\",\"horaInicio\":\"08:00\"");
-        int lunes9 = cuerpo.indexOf("\"dia\":\"LUNES\",\"horaInicio\":\"09:00\"");
+        int lunes8 = cuerpo.indexOf("\"dia\":\"LUNES\",\"horaInicio\":\"08:00:00\"");
+        int lunes9 = cuerpo.indexOf("\"dia\":\"LUNES\",\"horaInicio\":\"09:00:00\"");
         int martes = cuerpo.indexOf("\"dia\":\"MARTES\"");
         int miercoles = cuerpo.indexOf("\"dia\":\"MIERCOLES\"");
         assertTrue(lunes8 >= 0 && lunes8 < lunes9 && lunes9 < martes && martes < miercoles,
@@ -724,6 +738,83 @@ class CatalogoAcademicoApiTest {
         String estudiante = crearYTokenearEstudiante();
         assertEquals(403, conToken(get(SECCIONES + "/" + seccion + "/horario"), estudiante)
                 .getResponse().getStatus(), "el horario de sección es de ADMIN");
+    }
+
+    @Test
+    @DisplayName("El ESTUDIANTE lee el horario de su sección vigente en una sola petición")
+    void horarioDelEstudianteEnUnaSolaPeticion() throws Exception {
+        long dana = crearDocente("doc1@educa360.pe", "20000011");
+        long matematicas = crearMateria("Matematicas");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
+        habilitar(dana, "[%d]".formatted(matematicas));
+        long curso = nuevoCurso(dana, matematicas, seccion);
+        assertEquals(200, putHorario(curso, """
+                {"bloques":[
+                  {"dia":"MIERCOLES","horaInicio":"10:00","horaFin":"11:00"},
+                  {"dia":"LUNES","horaInicio":"08:00","horaFin":"09:00"}]}"""));
+
+        assertEquals(200, cambiarEstadoAnio(anio, "ABIERTO"),
+                "la matrícula vigente exige el año abierto");
+        String tokenAlumno = crearYTokenearEstudiante();
+        long alumno = estudianteRepository.findAll().get(0).getId();
+        assertEquals(201, matricular(alumno, seccion));
+
+        MvcResult respuesta = conToken(get(ESTUDIANTE_HORARIO), tokenAlumno);
+        assertEquals(200, respuesta.getResponse().getStatus(),
+                respuesta.getResponse().getContentAsString());
+        String cuerpo = respuesta.getResponse().getContentAsString();
+
+        assertEquals(2, veces(cuerpo, "\"bloqueId\":"), "los dos bloques: " + cuerpo);
+        assertTrue(cuerpo.contains("\"materiaNombre\":\"Matematicas\""), cuerpo);
+        assertTrue(cuerpo.contains("\"docenteNombre\":\"Dana Perez\""), cuerpo);
+        assertTrue(cuerpo.indexOf("\"dia\":\"LUNES\"") < cuerpo.indexOf("\"dia\":\"MIERCOLES\""),
+                "orden cronológico, no el de inserción: " + cuerpo);
+    }
+
+    @Test
+    @DisplayName("El ESTUDIANTE sin matrícula vigente ve el horario vacío, no un 404")
+    void horarioDelEstudianteSinMatriculaEsVacio() throws Exception {
+        crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        String tokenAlumno = crearYTokenearEstudiante();
+
+        MvcResult respuesta = conToken(get(ESTUDIANTE_HORARIO), tokenAlumno);
+        assertEquals(200, respuesta.getResponse().getStatus());
+        assertEquals("[]", respuesta.getResponse().getContentAsString());
+    }
+
+    @Test
+    @DisplayName("El APODERADO lee el horario de su hijo; uno ajeno responde 404 y el rol alumno 403")
+    void horarioDelHijoDelApoderado() throws Exception {
+        long dana = crearDocente("doc1@educa360.pe", "20000011");
+        long matematicas = crearMateria("Matematicas");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
+        habilitar(dana, "[%d]".formatted(matematicas));
+        long curso = nuevoCurso(dana, matematicas, seccion);
+        assertEquals(200, putHorario(curso, """
+                {"bloques":[{"dia":"MARTES","horaInicio":"09:00","horaFin":"10:00"}]}"""));
+        assertEquals(200, cambiarEstadoAnio(anio, "ABIERTO"));
+
+        String tokenAlumno = crearYTokenearEstudiante();
+        long alumno = estudianteRepository.findAll().get(0).getId();
+        assertEquals(201, matricular(alumno, seccion));
+
+        String tokenPapa = crearYTokenearApoderado();
+        long papa = apoderadoRepository.findAll().get(0).getId();
+        assertEquals(201, vincular(papa, alumno));
+
+        MvcResult respuesta = conToken(get(APODERADO_HIJOS + "/" + alumno + "/horario"), tokenPapa);
+        assertEquals(200, respuesta.getResponse().getStatus(),
+                respuesta.getResponse().getContentAsString());
+        String cuerpo = respuesta.getResponse().getContentAsString();
+        assertTrue(cuerpo.contains("\"materiaNombre\":\"Matematicas\""), cuerpo);
+        assertTrue(cuerpo.contains("\"dia\":\"MARTES\""), cuerpo);
+
+        assertEquals(404, conToken(get(APODERADO_HIJOS + "/999999/horario"), tokenPapa)
+                .getResponse().getStatus(), "un hijo no vinculado no existe para este apoderado");
+        assertEquals(403, conToken(get(APODERADO_HIJOS + "/" + alumno + "/horario"), tokenAlumno)
+                .getResponse().getStatus(), "la zona /apoderado es sólo para APODERADO");
     }
 
     @Test
@@ -907,6 +998,20 @@ class CatalogoAcademicoApiTest {
     private String getHorario(long cursoId) throws Exception {
         return conToken(get(CURSOS + "/" + cursoId + "/horario"), admin)
                 .getResponse().getContentAsString();
+    }
+
+    private int matricular(long estudianteId, long seccionId) throws Exception {
+        return crear(MATRICULAS, """
+                {"estudianteId":%d,"seccionId":%d,"fechaMatricula":"2026-02-20"}"""
+                .formatted(estudianteId, seccionId))
+                .getResponse().getStatus();
+    }
+
+    private int vincular(long apoderadoId, long estudianteId) throws Exception {
+        return crear(APODERADOS + "/" + apoderadoId + "/representados", """
+                {"estudianteId":%d,"parentesco":"PADRE","responsablePrincipal":true}"""
+                .formatted(estudianteId))
+                .getResponse().getStatus();
     }
 
     /** Id de un recurso recién creado: exige que la creación haya sido 201. */

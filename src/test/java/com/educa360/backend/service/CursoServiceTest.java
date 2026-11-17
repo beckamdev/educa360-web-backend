@@ -1,14 +1,21 @@
 package com.educa360.backend.service;
 
 import com.educa360.backend.dto.HorarioSeccionResponse;
+import com.educa360.backend.entity.AnioEscolar;
+import com.educa360.backend.entity.Apoderado;
+import com.educa360.backend.entity.ApoderadoEstudiante;
 import com.educa360.backend.entity.Curso;
 import com.educa360.backend.entity.DiaSemana;
 import com.educa360.backend.entity.Docente;
+import com.educa360.backend.entity.Estudiante;
 import com.educa360.backend.entity.HorarioBloque;
+import com.educa360.backend.entity.Matricula;
 import com.educa360.backend.entity.Materia;
 import com.educa360.backend.entity.Seccion;
 import com.educa360.backend.entity.User;
 import com.educa360.backend.exception.NotFoundException;
+import com.educa360.backend.repository.ApoderadoEstudianteRepository;
+import com.educa360.backend.repository.ApoderadoRepository;
 import com.educa360.backend.repository.AsistenciaRepository;
 import com.educa360.backend.repository.CalificacionRepository;
 import com.educa360.backend.repository.CursoRepository;
@@ -26,14 +33,16 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.when;
 
-/** Horario de una sección: orden cronológico y 404, sin Spring ni base de datos. */
+/** Horario por sección, del estudiante y del hijo del apoderado: sin Spring ni base de datos. */
 @ExtendWith(MockitoExtension.class)
 class CursoServiceTest {
 
@@ -42,6 +51,8 @@ class CursoServiceTest {
     @Mock private DocenteRepository docenteRepository;
     @Mock private EstudianteRepository estudianteRepository;
     @Mock private UserRepository userRepository;
+    @Mock private ApoderadoRepository apoderadoRepository;
+    @Mock private ApoderadoEstudianteRepository vinculoRepository;
     @Mock private UnidadRepository unidadRepository;
     @Mock private AsistenciaRepository asistenciaRepository;
     @Mock private CalificacionRepository calificacionRepository;
@@ -102,6 +113,103 @@ class CursoServiceTest {
 
         assertThrows(NotFoundException.class,
                 () -> servicio.listarHorarioDeSeccion(99L));
+    }
+
+    @Test
+    @DisplayName("El ESTUDIANTE ve el horario de SU sección vigente")
+    void estudianteVeElHorarioDeSuSeccion() {
+        User user = new User("alu@educa360.pe", "x", "Alma", "Luna",
+                "30000001", User.Role.ESTUDIANTE);
+        Estudiante alumno = new Estudiante(user, LocalDate.of(2011, 3, 3));
+        alumno.setId(11L);
+
+        when(userRepository.findByEmail("alu@educa360.pe")).thenReturn(Optional.of(user));
+        when(estudianteRepository.findByUser(user)).thenReturn(Optional.of(alumno));
+        when(matriculaService.vigenteDe(11L)).thenReturn(Optional.of(matriculaDe(alumno)));
+        when(horarioRepository.findByCursoSeccionId(1L))
+                .thenReturn(List.of(bloque(2L, DiaSemana.MARTES, 9),
+                        bloque(1L, DiaSemana.LUNES, 8)));
+
+        List<HorarioSeccionResponse> horario = servicio.listarHorarioDelEstudiante("alu@educa360.pe");
+
+        assertEquals(List.of(1L, 2L),
+                horario.stream().map(HorarioSeccionResponse::bloqueId).toList());
+        assertEquals("Matematicas", horario.get(0).materiaNombre());
+        assertEquals("Dana Perez", horario.get(0).docenteNombre());
+    }
+
+    @Test
+    @DisplayName("El ESTUDIANTE sin matrícula vigente ve lista vacía (no 404)")
+    void estudianteSinMatriculaVeListaVacia() {
+        User user = new User("alu@educa360.pe", "x", "Alma", "Luna",
+                "30000001", User.Role.ESTUDIANTE);
+        Estudiante alumno = new Estudiante(user, LocalDate.of(2011, 3, 3));
+        alumno.setId(11L);
+
+        when(userRepository.findByEmail("alu@educa360.pe")).thenReturn(Optional.of(user));
+        when(estudianteRepository.findByUser(user)).thenReturn(Optional.of(alumno));
+        when(matriculaService.vigenteDe(11L)).thenReturn(Optional.empty());
+
+        assertEquals(List.of(), servicio.listarHorarioDelEstudiante("alu@educa360.pe"));
+    }
+
+    @Test
+    @DisplayName("El APODERADO ve el horario de su hijo vinculado")
+    void apoderadoVeElHorarioDeSuHijo() {
+        Estudiante alumno = alumno();
+        Apoderado papa = papa();
+        ApoderadoEstudiante vinculo = new ApoderadoEstudiante(
+                papa, alumno, ApoderadoEstudiante.Parentesco.PADRE, true);
+
+        when(userRepository.findByEmail("papa@educa360.pe")).thenReturn(Optional.of(papa.getUser()));
+        when(apoderadoRepository.findByUser(papa.getUser())).thenReturn(Optional.of(papa));
+        when(vinculoRepository.findByApoderadoIdAndEstudianteId(20L, 11L))
+                .thenReturn(Optional.of(vinculo));
+        when(matriculaService.vigenteDe(11L)).thenReturn(Optional.of(matriculaDe(alumno)));
+        when(horarioRepository.findByCursoSeccionId(1L))
+                .thenReturn(List.of(bloque(1L, DiaSemana.LUNES, 8)));
+
+        List<HorarioSeccionResponse> horario =
+                servicio.listarHorarioDelHijo("papa@educa360.pe", 11L);
+
+        assertEquals(1, horario.size());
+        assertEquals("Matematicas", horario.get(0).materiaNombre());
+    }
+
+    @Test
+    @DisplayName("El APODERADO no ve el horario de un hijo NO vinculado (404)")
+    void apoderadoNoVeElHorarioDeUnHijoAjeno() {
+        Apoderado papa = papa();
+        when(userRepository.findByEmail("papa@educa360.pe")).thenReturn(Optional.of(papa.getUser()));
+        when(apoderadoRepository.findByUser(papa.getUser())).thenReturn(Optional.of(papa));
+        when(vinculoRepository.findByApoderadoIdAndEstudianteId(20L, 99L))
+                .thenReturn(Optional.empty());
+
+        assertThrows(NotFoundException.class,
+                () -> servicio.listarHorarioDelHijo("papa@educa360.pe", 99L));
+    }
+
+    private Estudiante alumno() {
+        User user = new User("alu@educa360.pe", "x", "Alma", "Luna",
+                "30000001", User.Role.ESTUDIANTE);
+        Estudiante alumno = new Estudiante(user, LocalDate.of(2011, 3, 3));
+        alumno.setId(11L);
+        return alumno;
+    }
+
+    private Apoderado papa() {
+        User user = new User("papa@educa360.pe", "x", "Pablo", "Soto",
+                "40000001", User.Role.APODERADO);
+        Apoderado papa = new Apoderado(user);
+        papa.setId(20L);
+        return papa;
+    }
+
+    private Matricula matriculaDe(Estudiante alumno) {
+        AnioEscolar anio = new AnioEscolar(2026, "Año Escolar 2026",
+                LocalDate.of(2026, 3, 2));
+        anio.setId(9L);
+        return new Matricula(alumno, anio, seccion, LocalDate.of(2026, 2, 20));
     }
 
     private HorarioBloque bloque(Long id, DiaSemana dia, int hora) {

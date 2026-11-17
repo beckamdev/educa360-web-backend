@@ -5,6 +5,8 @@ import com.educa360.backend.dto.CursoResponse;
 import com.educa360.backend.dto.HorarioBloqueResponse;
 import com.educa360.backend.dto.HorarioRequest;
 import com.educa360.backend.dto.HorarioSeccionResponse;
+import com.educa360.backend.entity.Apoderado;
+import com.educa360.backend.entity.ApoderadoEstudiante;
 import com.educa360.backend.entity.Curso;
 import com.educa360.backend.entity.Docente;
 import com.educa360.backend.entity.Estudiante;
@@ -15,6 +17,8 @@ import com.educa360.backend.entity.User;
 import com.educa360.backend.exception.BadRequestException;
 import com.educa360.backend.exception.ConflictException;
 import com.educa360.backend.exception.NotFoundException;
+import com.educa360.backend.repository.ApoderadoEstudianteRepository;
+import com.educa360.backend.repository.ApoderadoRepository;
 import com.educa360.backend.repository.AsistenciaRepository;
 import com.educa360.backend.repository.CalificacionRepository;
 import com.educa360.backend.repository.CursoRepository;
@@ -50,6 +54,8 @@ public class CursoService {
     private final DocenteRepository docenteRepository;
     private final EstudianteRepository estudianteRepository;
     private final UserRepository userRepository;
+    private final ApoderadoRepository apoderadoRepository;
+    private final ApoderadoEstudianteRepository vinculoRepository;
     private final UnidadRepository unidadRepository;
     private final AsistenciaRepository asistenciaRepository;
     private final CalificacionRepository calificacionRepository;
@@ -63,6 +69,8 @@ public class CursoService {
                         DocenteRepository docenteRepository,
                         EstudianteRepository estudianteRepository,
                         UserRepository userRepository,
+                        ApoderadoRepository apoderadoRepository,
+                        ApoderadoEstudianteRepository vinculoRepository,
                         UnidadRepository unidadRepository,
                         AsistenciaRepository asistenciaRepository,
                         CalificacionRepository calificacionRepository,
@@ -75,6 +83,8 @@ public class CursoService {
         this.docenteRepository = docenteRepository;
         this.estudianteRepository = estudianteRepository;
         this.userRepository = userRepository;
+        this.apoderadoRepository = apoderadoRepository;
+        this.vinculoRepository = vinculoRepository;
         this.unidadRepository = unidadRepository;
         this.asistenciaRepository = asistenciaRepository;
         this.calificacionRepository = calificacionRepository;
@@ -232,12 +242,76 @@ public class CursoService {
     @Transactional(readOnly = true)
     public List<HorarioSeccionResponse> listarHorarioDeSeccion(Long seccionId) {
         seccionService.buscar(seccionId); // 404 si no existe
+        return horarioDe(seccionId);
+    }
+
+    /**
+     * Horario de la sección vigente del ESTUDIANTE autenticado.
+     *
+     * La identidad sale del token: no recibe ids, no puede pedir el horario de
+     * otra sección. Sin matrícula en el año abierto (o con el alumno retirado)
+     * devuelve lista vacía — igual que {@code /estudiante/cursos}: es un alumno
+     * aún no inscrito, no un error.
+     */
+    @Transactional(readOnly = true)
+    public List<HorarioSeccionResponse> listarHorarioDelEstudiante(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
+        Estudiante estudiante = estudianteRepository.findByUser(user)
+                .orElseThrow(() -> new NotFoundException("El usuario no tiene perfil Estudiante"));
+        if (!estudiante.estaHabilitado()) {
+            return List.of(); // retirado/trasladado/egresado: ya no cursa
+        }
+        return matriculaService.vigenteDe(estudiante.getId())
+                .map(matricula -> horarioDe(matricula.getSeccion().getId()))
+                .orElse(List.of());
+    }
+
+    /**
+     * Horario de la sección vigente de un HIJO del apoderado autenticado.
+     *
+     * El vínculo lo crea Secretaría: si el hijo no está vinculado o no está
+     * activo responde 404 (mismo criterio que asistencias, notas y materiales).
+     * Sin matrícula en el año abierto devuelve lista vacía: el hijo existe
+     * antes de ser inscrito.
+     */
+    @Transactional(readOnly = true)
+    public List<HorarioSeccionResponse> listarHorarioDelHijo(String email, Long hijoId) {
+        Apoderado apoderado = apoderadoDe(email);
+        ApoderadoEstudiante vinculo = vinculoRepository
+                .findByApoderadoIdAndEstudianteId(apoderado.getId(), hijoId)
+                .filter(ApoderadoEstudiante::isActivo)
+                .orElseThrow(() -> new NotFoundException(
+                        "El estudiante " + hijoId + " no está vinculado a este apoderado"));
+        Estudiante estudiante = vinculo.getEstudiante();
+        if (!estudiante.estaHabilitado()) {
+            throw new NotFoundException("El estudiante no está activo");
+        }
+        return matriculaService.vigenteDe(estudiante.getId())
+                .map(matricula -> horarioDe(matricula.getSeccion().getId()))
+                .orElse(List.of());
+    }
+
+    /**
+     * Bloques de una sección con materia y docente, ordenados por día
+     * (LUNES→SÁBADO) y hora. El orden va en Java a propósito: con
+     * EnumType.STRING un ORDER BY dia saldría alfabético.
+     */
+    private List<HorarioSeccionResponse> horarioDe(Long seccionId) {
         return horarioRepository.findByCursoSeccionId(seccionId).stream()
                 .sorted(Comparator
                         .comparingInt((HorarioBloque bloque) -> bloque.getDia().ordinal())
                         .thenComparing(HorarioBloque::getHoraInicio))
                 .map(HorarioSeccionResponse::desde)
                 .toList();
+    }
+
+    private Apoderado apoderadoDe(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
+        return apoderadoRepository.findByUser(user)
+                .orElseThrow(() -> new NotFoundException(
+                        "El usuario no tiene perfil Apoderado"));
     }
 
     /**

@@ -1008,6 +1008,8 @@ docker compose up -d --build
 | `GET/PUT /api/v1/admin/cursos/{id}/horario` | ADMIN | Horario semanal |
 | `GET /api/v1/docente/cursos` | DOCENTE | Sus cursos |
 | `GET /api/v1/docente/cursos/{id}/horario` | DOCENTE | Horario de su curso |
+| `GET /api/v1/estudiante/horario` | ESTUDIANTE | Horario de su sección vigente; `[]` sin matrícula |
+| `GET /api/v1/apoderado/hijos/{id}/horario` | APODERADO | Horario del hijo vinculado; `[]` sin matrícula |
 
 **Criterios de aceptación:**
 - Abrir un segundo año o bimestre devuelve `409`.
@@ -1018,6 +1020,7 @@ docker compose up -d --build
 - Los solapes de horario devuelven `409`.
 - El `PUT` de horario de un curso con asistencias devuelve `409`.
 - El horario de una sección se lee completo en `GET /admin/secciones/{id}/horario`, ordenado por día (LUNES→SÁBADO) y hora.
+- El estudiante y el apoderado leen ese mismo horario en una sola petición, con su identidad tomada del token: `/estudiante/horario` y `/apoderado/hijos/{id}/horario`.
 
 ---
 
