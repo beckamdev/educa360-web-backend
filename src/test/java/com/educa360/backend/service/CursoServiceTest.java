@@ -116,6 +116,28 @@ class CursoServiceTest {
     }
 
     @Test
+    @DisplayName("El DOCENTE ve la semana completa de SUS cursos en una sola petición")
+    void docenteVeSuSemanaCompleta() {
+        User user = new User("doc@educa360.pe", "x", "Dana", "Perez",
+                "20000011", User.Role.DOCENTE);
+        Docente docente = new Docente(user, "Lic. en Matematicas");
+        docente.setId(7L);
+
+        when(userRepository.findByEmail("doc@educa360.pe")).thenReturn(Optional.of(user));
+        when(docenteRepository.findByUser(user)).thenReturn(Optional.of(docente));
+        when(horarioRepository.findByCursoDocenteId(7L))
+                .thenReturn(List.of(bloque(2L, DiaSemana.MARTES, 9),
+                        bloque(1L, DiaSemana.LUNES, 8)));
+
+        List<HorarioSeccionResponse> horario = servicio.listarHorarioDelDocente("doc@educa360.pe");
+
+        assertEquals(List.of(1L, 2L),
+                horario.stream().map(HorarioSeccionResponse::bloqueId).toList(),
+                "lunes 08:00 antes que martes 09:00");
+        assertEquals("Matematicas", horario.get(0).materiaNombre());
+    }
+
+    @Test
     @DisplayName("El ESTUDIANTE ve el horario de SU sección vigente")
     void estudianteVeElHorarioDeSuSeccion() {
         User user = new User("alu@educa360.pe", "x", "Alma", "Luna",

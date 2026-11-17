@@ -23,9 +23,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Matrículas: el estudiante queda inscrito en una sección de un año.
@@ -203,6 +206,24 @@ public class MatriculaService {
     public Optional<Matricula> vigenteDe(Long estudianteId) {
         return anioRepository.findByEstado(AnioEscolar.Estado.ABIERTO)
                 .flatMap(anio -> matriculaRepository.findByEstudianteIdAndAnioId(estudianteId, anio.getId()));
+    }
+
+    /**
+     * Alumnos vigentes por sección (ACTIVOS, matrícula no RETIRADA).
+     * Una sola consulta agrupada: alimenta {@code cantidadAlumnos} en los
+     * listados de cursos sin caer en N+1.
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, Long> contarAlumnosPorSeccion(Collection<Long> seccionIds) {
+        if (seccionIds == null || seccionIds.isEmpty()) {
+            return Map.of();
+        }
+        return matriculaRepository.contarAlumnosPorSeccion(seccionIds,
+                        Matricula.SituacionFinal.RETIRADO,
+                        Estudiante.EstadoEstudiante.ACTIVO).stream()
+                .collect(Collectors.toMap(
+                        MatriculaRepository.ConteoSeccion::getSeccionId,
+                        MatriculaRepository.ConteoSeccion::getTotal));
     }
 
     /** La matrícula vigente del usuario autenticado (zona /estudiante). */

@@ -33,6 +33,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Cursos (§5, catálogo académico) = "el curso" del colegio: Matemática · 3°A · profe X.
@@ -117,7 +120,8 @@ public class CursoService {
             throw new ConflictException("La materia '" + materia.getNombre()
                     + "' ya tiene curso en la sección " + seccion.getEtiqueta());
         }
-        return CursoResponse.desde(cursoRepository.save(new Curso(docente, materia, seccion)));
+        return aRespuestas(List.of(cursoRepository.save(
+                new Curso(docente, materia, seccion)))).get(0);
     }
 
     /** Filtrable por sección (?seccionId=) o por docente (?docenteId=). */
@@ -131,7 +135,7 @@ public class CursoService {
         } else {
             cursos = cursoRepository.findAll();
         }
-        return cursos.stream().map(CursoResponse::desde).toList();
+        return aRespuestas(cursos);
     }
 
     /** Los cursos de la sección del ESTUDIANTE (matrícula vigente). Sin matrícula: lista vacía. */
@@ -146,10 +150,8 @@ public class CursoService {
         }
         return matriculaService.vigenteDe(estudiante.getId())
                 .map(matricula -> cursoRepository.findBySeccionId(matricula.getSeccion().getId()))
-                .orElse(List.of())
-                .stream()
-                .map(CursoResponse::desde)
-                .toList();
+                .map(this::aRespuestas)
+                .orElse(List.of());
     }
 
     /**
@@ -165,9 +167,7 @@ public class CursoService {
                 .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
         Docente docente = docenteRepository.findByUser(user)
                 .orElseThrow(() -> new NotFoundException("El usuario no tiene perfil Docente"));
-        return cursoRepository.findByDocenteId(docente.getId()).stream()
-                .map(CursoResponse::desde)
-                .toList();
+        return aRespuestas(cursoRepository.findByDocenteId(docente.getId()));
     }
 
     /**
@@ -230,6 +230,20 @@ public class CursoService {
         return horarioRepository.findByCursoId(cursoId).stream()
                 .map(HorarioBloqueResponse::desde)
                 .toList();
+    }
+
+    /**
+     * Semana completa del DOCENTE autenticado: todos los bloques de SUS cursos
+     * en una sola petición, con materia y sección. Permite pintar "clases de
+     * hoy" sin una llamada por curso. La identidad sale del token.
+     */
+    @Transactional(readOnly = true)
+    public List<HorarioSeccionResponse> listarHorarioDelDocente(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
+        Docente docente = docenteRepository.findByUser(user)
+                .orElseThrow(() -> new NotFoundException("El usuario no tiene perfil Docente"));
+        return ordenar(horarioRepository.findByCursoDocenteId(docente.getId()));
     }
 
     /**
@@ -298,7 +312,29 @@ public class CursoService {
      * EnumType.STRING un ORDER BY dia saldría alfabético.
      */
     private List<HorarioSeccionResponse> horarioDe(Long seccionId) {
-        return horarioRepository.findByCursoSeccionId(seccionId).stream()
+        return ordenar(horarioRepository.findByCursoSeccionId(seccionId));
+    }
+
+    /**
+     * Cursos a DTO con el tamaño de su sección. Un solo conteo agrupado por
+     * sección evita N consultas en los listados.
+     */
+    private List<CursoResponse> aRespuestas(List<Curso> cursos) {
+        if (cursos.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> seccionIds = cursos.stream()
+                .map(curso -> curso.getSeccion().getId())
+                .collect(Collectors.toSet());
+        Map<Long, Long> conteos = matriculaService.contarAlumnosPorSeccion(seccionIds);
+        return cursos.stream()
+                .map(curso -> CursoResponse.desde(curso,
+                        conteos.getOrDefault(curso.getSeccion().getId(), 0L)))
+                .toList();
+    }
+
+    private List<HorarioSeccionResponse> ordenar(List<HorarioBloque> bloques) {
+        return bloques.stream()
                 .sorted(Comparator
                         .comparingInt((HorarioBloque bloque) -> bloque.getDia().ordinal())
                         .thenComparing(HorarioBloque::getHoraInicio))

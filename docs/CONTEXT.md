@@ -883,7 +883,7 @@ EGRESADO   → (terminal)
 - `POST /api/v1/auth/login` (`{email, password}`) → `200` con `{token, tokenType: "Bearer", expiresIn, user}`.
 - Límite de intentos: 5 fallos en 15 minutos bloquean 15 minutos; clave `email+IP`; `429` con `Retry-After`; estado en memoria.
 - `POST /api/v1/auth/register`: solo con BD vacía; crea el primer `ADMIN`. Luego responde `403`.
-- `GET /api/v1/auth/me`: cuenta + perfil del rol en una sola llamada.
+- `GET /api/v1/auth/me`: cuenta (incluidos sus teléfonos) + perfil del rol en una sola llamada.
 - API stateless: `Authorization: Bearer <token>`.
 - CORS por propiedad `app.cors.allowed-origins`.
 - `@PreAuthorize("hasRole('...')")` en controllers; ownership en services.
@@ -946,7 +946,7 @@ docker compose up -d --build
 |---|---|---|
 | `POST /api/v1/auth/login` | público | Login JWT |
 | `POST /api/v1/auth/register` | público (solo BD vacía) | Bootstrap del primer ADMIN |
-| `GET /api/v1/auth/me` | autenticado | Cuenta + perfil del rol |
+| `GET /api/v1/auth/me` | autenticado | Cuenta (con teléfonos) + perfil del rol |
 | `GET /api/v1/admin/usuarios?rol=&activo=&q=` | ADMIN | Listado de cuentas |
 | `GET /api/v1/admin/usuarios/{id}` | ADMIN | Detalle de cuenta |
 | `POST /api/v1/admin/usuarios` | ADMIN | Alta de ADMIN |
@@ -984,6 +984,7 @@ docker compose up -d --build
 - Materia activa y habilitada al docente.
 - Horario sin solapes por sección ni por docente.
 - El horario es plantilla; la asistencia se registra por `(bloque, fecha)`.
+- `CursoResponse` incluye `cantidadAlumnos`: alumnos ACTIVOS con matrícula no RETIRADA de la sección, en una consulta agrupada por listado.
 
 **Endpoints:**
 
@@ -1007,6 +1008,7 @@ docker compose up -d --build
 | `DELETE /api/v1/admin/cursos/{id}` | ADMIN | Baja si no tiene historia |
 | `GET/PUT /api/v1/admin/cursos/{id}/horario` | ADMIN | Horario semanal |
 | `GET /api/v1/docente/cursos` | DOCENTE | Sus cursos |
+| `GET /api/v1/docente/horario` | DOCENTE | Su semana completa en una petición |
 | `GET /api/v1/docente/cursos/{id}/horario` | DOCENTE | Horario de su curso |
 | `GET /api/v1/estudiante/horario` | ESTUDIANTE | Horario de su sección vigente; `[]` sin matrícula |
 | `GET /api/v1/apoderado/hijos/{id}/horario` | APODERADO | Horario del hijo vinculado; `[]` sin matrícula |
@@ -1060,7 +1062,7 @@ docker compose up -d --build
 | `PATCH /api/v1/secretaria/matriculas/{id}/seccion` | ADMIN, SECRETARIA | Cambia de sección antes de iniciar clases |
 | `PATCH /api/v1/secretaria/matriculas/{id}/retiro` | ADMIN, SECRETARIA | Retiro del año |
 | `POST/DELETE /api/v1/secretaria/apoderados/{id}/representados` | ADMIN, SECRETARIA | Vincular/desvincular |
-| `GET /api/v1/apoderado/hijos` | APODERADO | Sus hijos activos con sección vigente |
+| `GET /api/v1/apoderado/hijos` | APODERADO | Sus hijos activos con sección y año vigentes (`anioId`) |
 | `GET /api/v1/estudiante/matricula` | ESTUDIANTE | Su matrícula y sección vigente |
 
 **Criterios de aceptación:**

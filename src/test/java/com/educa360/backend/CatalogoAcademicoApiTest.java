@@ -84,6 +84,8 @@ class CatalogoAcademicoApiTest {
     private static final String CURSOS = "/api/v1/admin/cursos";
     private static final String CATALOGO_BIMESTRES = "/api/v1/bimestres";
     private static final String ESTUDIANTE_HORARIO = "/api/v1/estudiante/horario";
+    private static final String DOCENTE_HORARIO = "/api/v1/docente/horario";
+    private static final String AUTH_ME = "/api/v1/auth/me";
     private static final String APODERADO_HIJOS = "/api/v1/apoderado/hijos";
     private static final String MATRICULAS = "/api/v1/secretaria/matriculas";
     private static final String APODERADOS = "/api/v1/secretaria/apoderados";
@@ -815,6 +817,93 @@ class CatalogoAcademicoApiTest {
                 .getResponse().getStatus(), "un hijo no vinculado no existe para este apoderado");
         assertEquals(403, conToken(get(APODERADO_HIJOS + "/" + alumno + "/horario"), tokenAlumno)
                 .getResponse().getStatus(), "la zona /apoderado es sólo para APODERADO");
+    }
+
+    @Test
+    @DisplayName("El DOCENTE lee su semana completa en una sola petición, sólo de sus cursos")
+    void horarioDelDocenteEnUnaSolaPeticion() throws Exception {
+        long dana = crearDocente("doc1@educa360.pe", "20000011");
+        long elva = crearDocente("doc2@educa360.pe", "20000012");
+        long matematicas = crearMateria("Matematicas");
+        long fisica = crearMateria("Fisica");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
+        habilitar(dana, "[%d]".formatted(matematicas));
+        habilitar(elva, "[%d]".formatted(fisica));
+        long cursoMate = nuevoCurso(dana, matematicas, seccion);
+        long cursoFisica = nuevoCurso(elva, fisica, seccion);
+        assertEquals(200, putHorario(cursoMate, """
+                {"bloques":[
+                  {"dia":"LUNES","horaInicio":"09:00","horaFin":"10:00"},
+                  {"dia":"LUNES","horaInicio":"08:00","horaFin":"09:00"}]}"""));
+        assertEquals(200, putHorario(cursoFisica, """
+                {"bloques":[{"dia":"MARTES","horaInicio":"08:00","horaFin":"09:00"}]}"""));
+
+        String tokenDana = loginYToken("doc1@educa360.pe", "Docente1234");
+        MvcResult respuesta = conToken(get(DOCENTE_HORARIO), tokenDana);
+        assertEquals(200, respuesta.getResponse().getStatus(),
+                respuesta.getResponse().getContentAsString());
+        String cuerpo = respuesta.getResponse().getContentAsString();
+
+        assertEquals(2, veces(cuerpo, "\"bloqueId\":"), "sólo los bloques de Dana: " + cuerpo);
+        assertTrue(cuerpo.contains("\"materiaNombre\":\"Matematicas\""), cuerpo);
+        assertFalse(cuerpo.contains("Fisica"), "no ve el curso de la otra docente: " + cuerpo);
+        assertTrue(cuerpo.indexOf("\"horaInicio\":\"08:00:00\"")
+                        < cuerpo.indexOf("\"horaInicio\":\"09:00:00\""),
+                "orden por hora: " + cuerpo);
+    }
+
+    @Test
+    @DisplayName("Los cursos del DOCENTE traen cantidadAlumnos sin abrir la hoja")
+    void cursosDelDocenteTraenCantidadAlumnos() throws Exception {
+        long dana = crearDocente("doc1@educa360.pe", "20000011");
+        long matematicas = crearMateria("Matematicas");
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
+        habilitar(dana, "[%d]".formatted(matematicas));
+        nuevoCurso(dana, matematicas, seccion);
+
+        String tokenAlumno = crearYTokenearEstudiante();
+        long alumno = estudianteRepository.findAll().get(0).getId();
+        assertEquals(201, matricular(alumno, seccion));
+
+        String tokenDana = loginYToken("doc1@educa360.pe", "Docente1234");
+        String cuerpo = conToken(get("/api/v1/docente/cursos"), tokenDana)
+                .getResponse().getContentAsString();
+
+        assertTrue(cuerpo.contains("\"cantidadAlumnos\":1"),
+                "un alumno matriculado: " + cuerpo);
+        assertEquals(1, veces(cuerpo, "\"cantidadAlumnos\":"), "un curso: " + cuerpo);
+    }
+
+    @Test
+    @DisplayName("El hijo trae anioId para pedir bimestres y /auth/me trae los teléfonos")
+    void hijoTraeAnioIdYPerfilTraeTelefonos() throws Exception {
+        long anio = crearAnio(2026, "Año Escolar 2026", "2026-03-02");
+        long seccion = nuevaSeccion(3, "A", anio);
+        assertEquals(200, cambiarEstadoAnio(anio, "ABIERTO"));
+
+        crearYTokenearEstudiante();
+        long alumno = estudianteRepository.findAll().get(0).getId();
+        assertEquals(201, matricular(alumno, seccion));
+
+        assertEquals(201, crear(APODERADOS, """
+                {"usuario":{"email":"papa@educa360.pe","password":"Apoderado1234","nombres":"Pablo",
+                            "apellidos":"Soto","dni":"40000001","telefonos":["999888777"]},
+                 "perfil":{}}""").getResponse().getStatus());
+        long papa = apoderadoRepository.findAll().get(0).getId();
+        assertEquals(201, vincular(papa, alumno));
+
+        String tokenPapa = loginYToken("papa@educa360.pe", "Apoderado1234");
+        String hijos = conToken(get(APODERADO_HIJOS), tokenPapa)
+                .getResponse().getContentAsString();
+        assertTrue(hijos.contains("\"anioId\":" + anio),
+                "el año vigente viaja con el hijo: " + hijos);
+
+        String perfil = conToken(get(AUTH_ME), tokenPapa)
+                .getResponse().getContentAsString();
+        assertTrue(perfil.contains("\"telefonos\":[\"999888777\"]"),
+                "el perfil muestra el teléfono: " + perfil);
     }
 
     @Test
