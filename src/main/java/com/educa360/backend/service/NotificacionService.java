@@ -38,8 +38,8 @@ import java.util.Map;
  * Persistencia y entrega de notificaciones.
  *
  * La BD es la fuente de verdad: cada evento guarda una fila por destinatario.
- * El WebSocket solo acelera la entrega y se dispara después del commit, para
- * no avisar de algo que la transacción podría revertir.
+ * El WebSocket y el push nativo solo aceleran la entrega y se disparan después
+ * del commit, para no avisar de algo que la transacción podría revertir.
  *
  * La resolución de destinatarios vive aquí para que los servicios de negocio
  * solo expresen "ocurrió este evento" y no repitan consultas de audiencia.
@@ -59,19 +59,22 @@ public class NotificacionService {
     private final ApoderadoEstudianteRepository vinculoRepository;
     private final CursoRepository cursoRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final PushNotificationService pushNotificationService;
 
     public NotificacionService(NotificacionRepository notificacionRepository,
                                UserRepository userRepository,
                                MatriculaRepository matriculaRepository,
                                ApoderadoEstudianteRepository vinculoRepository,
                                CursoRepository cursoRepository,
-                               SimpMessagingTemplate messagingTemplate) {
+                               SimpMessagingTemplate messagingTemplate,
+                               PushNotificationService pushNotificationService) {
         this.notificacionRepository = notificacionRepository;
         this.userRepository = userRepository;
         this.matriculaRepository = matriculaRepository;
         this.vinculoRepository = vinculoRepository;
         this.cursoRepository = cursoRepository;
         this.messagingTemplate = messagingTemplate;
+        this.pushNotificationService = pushNotificationService;
     }
 
     // ==================== API del usuario ====================
@@ -302,12 +305,17 @@ public class NotificacionService {
         List<String> emails = creadas.stream()
                 .map(notificacion -> notificacion.getUsuario().getEmail())
                 .toList();
+        List<Long> usuarioIds = creadas.stream()
+                .map(notificacion -> notificacion.getUsuario().getId())
+                .toList();
 
         Runnable envio = () -> {
             for (int i = 0; i < payloads.size(); i++) {
                 messagingTemplate.convertAndSendToUser(
                         emails.get(i), DESTINO, payloads.get(i));
             }
+            // Push nativo: se encola y nunca bloquea el hilo del request.
+            pushNotificationService.enviar(payloads, usuarioIds);
         };
 
         if (TransactionSynchronizationManager.isSynchronizationActive()) {

@@ -29,6 +29,10 @@ services:
       # Supabase Storage: sin estas variables los endpoints de archivos dan 503.
       APP_SUPABASE_URL: ${APP_SUPABASE_URL:-}
       APP_SUPABASE_SERVICE_ROLE_KEY: ${APP_SUPABASE_SERVICE_ROLE_KEY:-}
+      # Push nativo: apagado por defecto (la API funciona igual).
+      APP_PUSH_ENABLED: ${APP_PUSH_ENABLED:-false}
+      APP_PUSH_EXPO_URL: ${APP_PUSH_EXPO_URL:-https://exp.host/--/api/v2/push/send}
+      APP_PUSH_EXPO_ACCESS_TOKEN: ${APP_PUSH_EXPO_ACCESS_TOKEN:-}
     depends_on:
       postgres:
         condition: service_healthy

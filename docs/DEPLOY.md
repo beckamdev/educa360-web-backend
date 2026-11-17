@@ -78,8 +78,8 @@ curl https://<tu-dominio>/actuator/health
 # {"status":"UP"}
 ```
 
-En **Deployments → Logs** deberías ver Flyway aplicando `V1` y `V3` y luego
-`Started BackendApplication`.
+En **Deployments → Logs** deberías ver Flyway aplicando `V1`, `V3` y `V4` y
+luego `Started BackendApplication`.
 
 | Recurso | URL |
 |---|---|
@@ -125,4 +125,5 @@ Después de esa cuenta, `/auth/register` responde `403` y las altas pasan por
 | El contenedor no arranca | Falta `APP_JWT_SECRET` o tiene menos de 32 bytes |
 | Healthcheck en rojo | Variables `SPRING_DATASOURCE_*` ausentes: la app intenta `localhost` |
 | Materiales/sustentos dan `503` | Falta `APP_SUPABASE_URL`, la `service_role` key o los buckets |
+| Los push no llegan | `APP_PUSH_ENABLED=false`, la app móvil no registró su token o faltan credenciales de FCM/APNs en EAS |
 | WebSocket no conecta | Usar `ws://` en vez de `wss://`, o el header `Authorization` en el `CONNECT` |

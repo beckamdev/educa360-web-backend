@@ -47,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -64,6 +65,7 @@ class NotificacionServiceTest {
     @Mock private ApoderadoEstudianteRepository vinculoRepository;
     @Mock private CursoRepository cursoRepository;
     @Mock private SimpMessagingTemplate messagingTemplate;
+    @Mock private PushNotificationService pushNotificationService;
 
     @InjectMocks private NotificacionService servicio;
 
@@ -289,6 +291,7 @@ class NotificacionServiceTest {
                 ArgumentCaptor.forClass(Notificacion.class);
         verify(notificacionRepository, times(2)).save(captor.capture());
         assertTrue(captor.getAllValues().getFirst().getMensaje().contains("15.50"));
+        verify(pushNotificationService).enviar(anyList(), eq(List.of(4L, 5L)));
     }
 
     @Test
