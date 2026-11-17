@@ -1,9 +1,10 @@
 # Contexto del Proyecto: Educa360 (Backend)
 
-> **Documento vivo — v3.6 (simplificado)**
-> Última actualización: 2026-11-06
+> **Documento vivo — v3.8**
+> Última actualización: 2026-11-17
 > Este archivo es la **fuente de verdad** del dominio, las reglas de negocio y el roadmap.
 > Si el código y este documento difieren, se corrigen ambos en el mismo cambio.
+> Para el contrato que consume la app móvil, ver [`MOVIL.md`](./MOVIL.md).
 
 ---
 
@@ -960,6 +961,8 @@ docker compose up -d --build
 - Baja lógica por `User.activo`.
 - El primer registro solo funciona con BD vacía y crea `ADMIN`.
 - Todas las altas pasan por `UsuarioService.crearCuenta()`.
+- Los teléfonos viven una sola vez en `User` (1:N con `Telefono`). El `ESTUDIANTE` no los gestiona: al ser menor, la comunicación es con su apoderado (`403` en `PATCH /auth/me/telefonos`).
+- `PATCH /auth/me/telefonos` tiene semántica de **reemplazo**: la lista enviada es la que queda, `[]` quita todos y no se acepta `null`. Máximo 5 números, sin duplicados y con formato `\+?\d{7,15}`.
 
 **Endpoints:**
 
@@ -968,6 +971,7 @@ docker compose up -d --build
 | `POST /api/v1/auth/login` | público | Login JWT |
 | `POST /api/v1/auth/register` | público (solo BD vacía) | Bootstrap del primer ADMIN |
 | `GET /api/v1/auth/me` | autenticado | Cuenta (con teléfonos) + perfil del rol |
+| `PATCH /api/v1/auth/me/telefonos` | autenticado (excepto ESTUDIANTE) | Reemplaza **mis** teléfonos; `[]` los quita todos |
 | `GET /api/v1/admin/usuarios?rol=&activo=&q=` | ADMIN | Listado de cuentas |
 | `GET /api/v1/admin/usuarios/{id}` | ADMIN | Detalle de cuenta |
 | `POST /api/v1/admin/usuarios` | ADMIN | Alta de ADMIN |
@@ -1166,6 +1170,7 @@ docker compose up -d --build
 |---|---|---|
 | `GET /api/v1/docente/cursos/{cursoId}/asistencia?bloqueId=&fecha=` | DOCENTE | Hoja de la clase: todos los alumnos, `estado` nullable |
 | `PUT /api/v1/docente/cursos/{cursoId}/asistencia` | DOCENTE | Upsert parcial de la hoja |
+| `GET /api/v1/docente/asistencias/resumen?fecha=` | DOCENTE | Resumen del día: todos mis bloques con el avance de cada uno |
 | `GET /api/v1/estudiante/asistencias?anioId=&bimestreId=` | ESTUDIANTE | Historial y resumen propios |
 | `GET /api/v1/apoderado/hijos/{hijoId}/asistencias?anioId=&bimestreId=` | APODERADO | Historial y resumen del hijo vinculado |
 | `GET /api/v1/secretaria/estudiantes/{id}/asistencias?anioId=&bimestreId=` | SECRETARIA | Historial y resumen del alumno |
@@ -1185,6 +1190,29 @@ Cuerpo del `PUT`:
 }
 ```
 
+**Resumen del día del docente** (`GET /api/v1/docente/asistencias/resumen?fecha=`):
+
+Pinta el avance del día sin abrir una hoja por bloque. Devuelve solo los bloques del docente que caen en el día de la fecha y en el año calendario de esa fecha (el horario de años anteriores no se mezcla). Los domingos devuelve `dia: null` y `bloques: []`.
+
+```json
+{
+  "fecha": "2026-11-16",
+  "dia": "LUNES",
+  "totalBloques": 2,
+  "bloquesCompletos": 1,
+  "bloques": [
+    {
+      "bloqueId": 12, "cursoId": 5, "materiaNombre": "Matemática",
+      "seccionEtiqueta": "3°A", "horaInicio": "08:00", "horaFin": "09:00",
+      "totalAlumnos": 28, "registradas": 28, "pendientes": 0,
+      "presentes": 25, "tardanzas": 1, "justificadas": 1, "faltas": 1
+    }
+  ]
+}
+```
+
+`registradas = presentes + tardanzas + justificadas + faltas`; `pendientes = totalAlumnos - registradas` (nunca negativo). Un bloque está completo cuando `pendientes == 0`. Se resuelve con dos consultas agrupadas (conteos por bloque+estado y tamaños de sección), no con una hoja por bloque.
+
 **Resumen de asistencia:**
 
 ```text
@@ -1202,6 +1230,8 @@ Solo `FALTA` es inasistencia injustificada. El mínimo para aprobar es `70%`. Si
 - Un `PUT` parcial no borra ni altera a los alumnos que no aparecen en el cuerpo.
 - La hoja de clase incluye a los alumnos sin registro con `estado: null`.
 - El resumen devuelve total, presentes, tardanzas, justificadas, faltas, efectivas y porcentaje.
+- El resumen del día devuelve todos los bloques del docente para esa fecha con `totalAlumnos`, `registradas` y `pendientes`; no hace una llamada por bloque.
+- El resumen del día no mezcla bloques de otros años calendario y devuelve `dia: null` en domingo.
 - Estudiante, apoderado, secretaría y admin solo leen lo que su rol permite.
 - `TARDANZA` se deriva pasados 15 minutos del inicio del bloque.
 - Con asistencias registradas, reemplazar el horario o eliminar el curso responde `409`.
@@ -1549,6 +1579,24 @@ Diferido y documentado como limitación:
 | Material publicado | `MaterialService.cambiarPublicacion` | Alumnos con matrícula en la sección del curso. Solo en la transición de no publicado a publicado. |
 | Cierre anual | `CierreService.cerrar` | Alumnos con matrícula del año y sus apoderados activos. |
 
+**`referenciaId`: qué pantalla abrir al tocar el aviso**
+
+`tipo` dice de qué trata el aviso; `referenciaId` identifica el registro concreto. La app lo usa para abrir el detalle correcto (push o bandeja):
+
+| `tipo` | `referenciaId` apunta a | Pantalla sugerida |
+|---|---|---|
+| `COMUNICADO` | `Comunicado.id` | Detalle del comunicado |
+| `TICKET_RESUELTO` | `TicketJustificacion.id` | Detalle del ticket |
+| `CALIFICACION` | `Calificacion.id` | Detalle de la calificación en su unidad |
+| `ASISTENCIA` | `Asistencia.id` | Detalle de la asistencia del día |
+| `MATERIAL` | `MaterialClase.id` | Detalle del material |
+| `CIERRE` | `AnioEscolar.id` | Boleta / cierre del año |
+
+Reglas para el cliente:
+- Si `referenciaId` es `null`, abrir la bandeja de notificaciones.
+- Un `CALIFICACION` eliminado conserva su `referenciaId`, pero el registro ya no existe: si el detalle responde `404`, mostrar la bandeja.
+- El id siempre pertenece a un recurso que el usuario puede leer con su rol; no hace falta pedir permisos extra.
+
 **Endpoints REST:**
 
 | Método y ruta | Rol | Descripción |
@@ -1879,7 +1927,7 @@ Reglas:
 
 ## 11. Estado actual y roadmap
 
-### 11.1. Estado actual (tras M13)
+### 11.1. Estado actual (tras M14)
 
 | Módulo | Estado | Nota |
 |---|---|---|
@@ -1897,6 +1945,7 @@ Reglas:
 | M11 Endurecimiento y Flyway | ✅ | Flyway, `ddl-auto=validate`, Docker non-root, health check y CI |
 | M12 Notificaciones y WebSocket | ✅ | `Notificacion` persistente, REST de bandeja/contador y push STOMP por usuario |
 | M13 Push nativo | ✅ | Tokens de dispositivo, Expo Push Service opcional y envío asíncrono por lotes |
+| M14 Cierre móvil | ✅ | Resumen de asistencia por fecha, edición de teléfonos propios y guía `docs/MOVIL.md` |
 
 ### 11.2. Orden de implementación
 
@@ -1914,6 +1963,7 @@ Reglas:
 12. M11: endurecimiento y Flyway.
 13. M12: notificaciones persistentes y WebSocket.
 14. M13: push nativo con Expo Push Service.
+15. M14: cierre móvil (resumen de asistencia, teléfonos propios y documentación).
 
 ### 11.3. Definición de “módulo terminado”
 
@@ -1975,6 +2025,10 @@ Un módulo se considera terminado cuando:
 | 40 | M11: Flyway gobierna el esquema y Hibernate valida (`ddl-auto=validate`). Los datos demo viven en `db/seed` y solo se cargan si `FLYWAY_LOCATIONS` incluye esa ruta; en producción se usa solo `classpath:db/migration`. Las migraciones aplicadas no se editan. |
 | 41 | M12: `Notificacion` es una entidad separada de `Comunicado`; un comunicado puede generar notificaciones. Se persisten antes del push y se envían después del commit. El destinatario sale del token. El WebSocket usa STOMP con JWT en el frame `CONNECT` y destino `/user/queue/notificaciones`; el broker es en memoria y no se comparte entre instancias. |
 | 42 | M13: el push nativo usa Expo Push Service y es opcional (`APP_PUSH_ENABLED=false` por defecto). El backend no guarda credenciales de FCM/APNs: viven en EAS. Los tokens son únicos, se reasignan al usuario que inicia sesión y se borran si Expo responde `DeviceNotRegistered`. El envío es asíncrono y por lotes de 100. |
+| 43 | M14 (móvil): `GET /docente/asistencias/resumen?fecha=` devuelve todos los bloques del docente para esa fecha con `totalAlumnos`, `registradas` y `pendientes`. Se resuelve con dos consultas agrupadas (conteos por bloque+estado y tamaños de sección), filtra por el año calendario de la fecha y devuelve `dia=null` los domingos. |
+| 44 | M14: `PATCH /auth/me/telefonos` reemplaza la lista propia (`[]` quita todos, `null` no se acepta). `ESTUDIANTE` responde `403`; máximo 5 números, sin duplicados. El borrado se hace flush antes del insert para no chocar con `unique(user_id, numero)` cuando se repite un número; la edición de ADMIN usa el mismo arreglo. |
+| 45 | Calendario escolar / días no lectivos: **fuera de alcance**. El backend no modela feriados y no bloquea el registro de asistencia en esas fechas; la app no puede impedirlo. Decisión del equipo, revisable si cambia el requisito. |
+| 46 | Comunicado a varias secciones: **por diseño no se implementa**. `DOCENTE` publica en una sola sección donde dicta clase o es tutor; un aviso a varias secciones se resuelve publicando un general desde `SECRETARIA` o `ADMIN`. |
 
 ### 12.2. Supuestos operativos
 
@@ -1999,6 +2053,16 @@ Un módulo se considera terminado cuando:
 ---
 
 ## 13. Registro de cambios
+
+### v3.8 — 2026-11-17 (cierre móvil)
+
+- Se agrega `GET /api/v1/docente/asistencias/resumen?fecha=`: todos los bloques del docente del día con `totalAlumnos`, `registradas`, `pendientes` y conteos por estado. Dos consultas agrupadas, sin una hoja por bloque.
+- Se agrega `PATCH /api/v1/auth/me/telefonos`: el usuario autenticado reemplaza sus propios teléfonos (`[]` los quita). `ESTUDIANTE` responde `403`; máximo 5 y sin duplicados.
+- Fix: guardar la misma lista de teléfonos ya no choca con `unique(user_id, numero)`. El borrado se hace flush antes del insert, tanto en la edición propia como en `PUT /admin/usuarios/{id}`.
+- Se documenta `referenciaId` por `TipoNotificacion` (qué pantalla abrir al tocar el aviso) y se agrega `docs/MOVIL.md` con el contrato que consume la app: horarios, `cantidadAlumnos`, `anioId`, `telefonos`, push y notificaciones.
+- Sin migraciones nuevas: solo endpoints y documentación.
+- Calendario escolar / días no lectivos y comunicado multi-sección quedan **fuera de alcance** por decisión del equipo (ver 12.1, decisiones 45 y 46).
+- Suite: **323 tests**, 0 fallos.
 
 ### v3.7 — 2026-11-16 (M13 implementado)
 

@@ -3,6 +3,7 @@ package com.educa360.backend.controller;
 import com.educa360.backend.dto.AuthResponse;
 import com.educa360.backend.dto.LoginRequest;
 import com.educa360.backend.dto.MeResponse;
+import com.educa360.backend.dto.TelefonosUpdateRequest;
 import com.educa360.backend.dto.UsuarioBasicoRequest;
 import com.educa360.backend.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -54,5 +56,18 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<MeResponse> me(Authentication authentication) {
         return ResponseEntity.ok(authService.me(authentication.getName()));
+    }
+
+    /**
+     * PATCH /api/v1/auth/me/telefonos -> el usuario reemplaza sus propios
+     * teléfonos. La lista enviada es la que queda; {@code []} los quita todos.
+     * Devuelve el perfil completo, igual que {@code GET /auth/me}.
+     */
+    @PatchMapping("/me/telefonos")
+    public ResponseEntity<MeResponse> actualizarTelefonos(
+            @Valid @RequestBody TelefonosUpdateRequest datos,
+            Authentication authentication) {
+        return ResponseEntity.ok(
+                authService.actualizarTelefonos(authentication.getName(), datos.telefonos()));
     }
 }

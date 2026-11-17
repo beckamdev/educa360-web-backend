@@ -7,6 +7,7 @@ import com.educa360.backend.entity.Docente;
 import com.educa360.backend.entity.Estudiante;
 import com.educa360.backend.entity.Telefono;
 import com.educa360.backend.entity.User;
+import com.educa360.backend.exception.BadRequestException;
 import com.educa360.backend.exception.ConflictException;
 import com.educa360.backend.exception.NotFoundException;
 import com.educa360.backend.repository.ApoderadoRepository;
@@ -16,11 +17,13 @@ import com.educa360.backend.repository.SecretariaRepository;
 import com.educa360.backend.repository.UserRepository;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -161,6 +164,10 @@ public class UsuarioService {
 
         if (request.telefonos() != null) {
             user.getTelefonos().clear(); // orphanRemoval borra los que ya no están
+            // Mismo motivo que en reemplazarTelefonos: el DELETE debe ir antes
+            // del INSERT para no chocar con unique(user_id, numero) cuando se
+            // guarda la misma lista que ya tenía.
+            userRepository.flush();
             request.telefonos().forEach(numero -> user.agregarTelefono(new Telefono(numero)));
         }
 
@@ -176,8 +183,41 @@ public class UsuarioService {
         return aRespuesta(guardado);
     }
 
-    /** Baja lógica: la cuenta deja de poder entrar; sus datos permanecen. */
+    /**
+     * El usuario autenticado reemplaza SUS propios teléfonos.
+     *
+     * Misma semántica que la edición de ADMIN: la lista enviada es la que
+     * queda, y una lista vacía los quita todos. La identidad sale del token,
+     * así que nadie puede editar los teléfonos de otra cuenta.
+     *
+     * El ESTUDIANTE no gestiona teléfonos: al ser menor, la comunicación es
+     * con su apoderado (misma regla que aplica EstudianteService al darlo de
+     * alta). Se responde 403.
+     */
     @Transactional
+    public void reemplazarTelefonos(String email, List<String> telefonos) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
+        if (user.getRol() == User.Role.ESTUDIANTE) {
+            throw new AccessDeniedException(
+                    "El estudiante no gestiona teléfonos: la comunicación es con su apoderado");
+        }
+        if (telefonos != null && new HashSet<>(telefonos).size() != telefonos.size()) {
+            throw new BadRequestException("No se puede repetir el mismo teléfono");
+        }
+
+        user.getTelefonos().clear(); // orphanRemoval borra los que ya no están
+        // Flush explícito: si la nueva lista repite un número que ya existía,
+        // el INSERT chocaría con unique(user_id, numero) si Hibernate lo
+        // ejecutara antes del DELETE. Aquí el borrado va primero.
+        userRepository.flush();
+        if (telefonos != null) {
+            telefonos.forEach(numero -> user.agregarTelefono(new Telefono(numero)));
+        }
+        userRepository.save(user);
+    }
+
+    /** Baja lógica: la cuenta deja de poder entrar; sus datos permanecen. */    @Transactional
     public UsuarioResponse cambiarActivo(Long id, boolean activo) {
         User user = buscar(id);
         user.setActivo(activo);

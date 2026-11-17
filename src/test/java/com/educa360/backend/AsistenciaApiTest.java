@@ -338,8 +338,79 @@ class AsistenciaApiTest {
                 .getResponse().getStatus(), "el curso no se elimina si ya hay asistencias");
     }
 
-    // ==================== Escenario ====================
+    @Test
+    @DisplayName("Resumen del día: avance por bloque en una sola llamada")
+    void resumenDelDia() throws Exception {
+        LocalDate clase = clasePasada();
+        Escenario e = prepararEscenario(clase);
 
+        long alumno2 = crearEstudiante("beto@educa360.pe", "30000002", "Beto");
+        long matricula2 = matricular(alumno2, e.seccion(), primerDia(e));
+        long alumno3 = crearEstudiante("carla@educa360.pe", "30000003", "Carla");
+        long matricula3 = matricular(alumno3, e.seccion(), primerDia(e));
+
+        // Sin registros: los tres alumnos están pendientes
+        String inicial = resumen(e.tokenDocente(), clase);
+        assertTrue(inicial.contains("\"dia\":\"LUNES\""), inicial);
+        assertTrue(inicial.contains("\"totalBloques\":1"), inicial);
+        assertTrue(inicial.contains("\"bloquesCompletos\":0"), inicial);
+        assertTrue(inicial.contains("\"totalAlumnos\":3"), inicial);
+        assertTrue(inicial.contains("\"registradas\":0"), inicial);
+        assertTrue(inicial.contains("\"pendientes\":3"), inicial);
+
+        // Un presente y una falta: queda uno pendiente
+        assertEquals(200, registrarAsistencia(e.tokenDocente(), e.curso(), e.bloque(), clase,
+                ("[{\"matriculaId\":%d,\"asistio\":true},"
+                        + "{\"matriculaId\":%d,\"asistio\":false}]")
+                        .formatted(e.matricula(), matricula2))
+                .getResponse().getStatus());
+
+        String parcial = resumen(e.tokenDocente(), clase);
+        assertTrue(parcial.contains("\"registradas\":2"), parcial);
+        assertTrue(parcial.contains("\"pendientes\":1"), parcial);
+        assertTrue(parcial.contains("\"presentes\":1"), parcial);
+        assertTrue(parcial.contains("\"faltas\":1"), parcial);
+        assertTrue(parcial.contains("\"tardanzas\":0"), parcial);
+        assertTrue(parcial.contains("\"justificadas\":0"), parcial);
+        assertTrue(parcial.contains("\"bloquesCompletos\":0"), parcial);
+
+        // Hoja completa: el bloque cuenta como cerrado
+        assertEquals(200, registrarAsistencia(e.tokenDocente(), e.curso(), e.bloque(), clase,
+                "[{\"matriculaId\":%d,\"asistio\":true}]".formatted(matricula3))
+                .getResponse().getStatus());
+
+        String completo = resumen(e.tokenDocente(), clase);
+        assertTrue(completo.contains("\"pendientes\":0"), completo);
+        assertTrue(completo.contains("\"bloquesCompletos\":1"), completo);
+
+        // Un día sin bloques del docente
+        String sinClases = resumen(e.tokenDocente(), clase.plusDays(1));
+        assertTrue(sinClases.contains("\"dia\":\"MARTES\""), sinClases);
+        assertTrue(sinClases.contains("\"totalBloques\":0"), sinClases);
+        assertTrue(sinClases.contains("\"bloques\":[]"), sinClases);
+
+        // Domingo: no existe día de clase en el horario
+        String domingo = resumen(e.tokenDocente(), clase.plusDays(6));
+        assertTrue(domingo.contains("\"dia\":null"), domingo);
+        assertTrue(domingo.contains("\"totalBloques\":0"), domingo);
+
+        // RBAC: solo el docente consulta su propio resumen
+        String tokenAlumno = loginYToken("alma@educa360.pe", "Alumno1234");
+        assertEquals(403, conToken(get(DOCENTE + "/asistencias/resumen?fecha=" + clase),
+                tokenAlumno).getResponse().getStatus());
+        assertEquals(400, conToken(get(DOCENTE + "/asistencias/resumen"), e.tokenDocente())
+                .getResponse().getStatus(), "la fecha es obligatoria");
+    }
+
+    private String resumen(String token, LocalDate fecha) throws Exception {
+        MvcResult resultado = conToken(
+                get(DOCENTE + "/asistencias/resumen?fecha=" + fecha), token);
+        assertEquals(200, resultado.getResponse().getStatus(),
+                resultado.getResponse().getContentAsString());
+        return resultado.getResponse().getContentAsString();
+    }
+
+    // ==================== Escenario ====================
     private record Escenario(long anio, long bimestre, long seccion, long docente,
                              long materia, long curso, long bloque, long alumno,
                              long matricula, String tokenDocente, LocalDate clase) {
