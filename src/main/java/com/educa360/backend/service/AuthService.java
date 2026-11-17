@@ -23,6 +23,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 @Service
 public class AuthService {
 
@@ -134,6 +136,19 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("Usuario no encontrado"));
         return new MeResponse(UserResponse.from(user), perfilDe(user));
+    }
+
+    /**
+     * PATCH /auth/me/telefonos: el usuario autenticado reemplaza SUS teléfonos.
+     *
+     * Devuelve el mismo {@link MeResponse} que {@code /auth/me} para que el
+     * cliente refresque el perfil sin una segunda petición. La restricción al
+     * estudiante y la validación de duplicados viven en UsuarioService.
+     */
+    @Transactional
+    public MeResponse actualizarTelefonos(String email, List<String> telefonos) {
+        usuarioService.reemplazarTelefonos(email, telefonos);
+        return me(email);
     }
 
     /**
