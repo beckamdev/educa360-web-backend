@@ -1,8 +1,10 @@
 package com.educa360.backend.dto;
 
+import com.educa360.backend.entity.Telefono;
 import com.educa360.backend.entity.User;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Vista pública del usuario. Nunca incluye la contraseña
@@ -17,6 +19,7 @@ public record UserResponse(
         String dni,
         String rol,
         boolean activo,
+        List<String> telefonos,
         LocalDateTime createdAt
 ) {
     public static UserResponse from(User user) {
@@ -28,6 +31,7 @@ public record UserResponse(
                 user.getDni(),
                 user.getRol().name(),
                 user.isActivo(),
+                user.getTelefonos().stream().map(Telefono::getNumero).sorted().toList(),
                 user.getCreatedAt()
         );
     }

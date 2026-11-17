@@ -21,6 +21,13 @@ public interface HorarioBloqueRepository extends JpaRepository<HorarioBloque, Lo
     @EntityGraph(attributePaths = {"curso", "curso.materia", "curso.docente", "curso.docente.user"})
     List<HorarioBloque> findByCursoSeccionId(Long seccionId);
 
+    /**
+     * Todos los bloques de los cursos de un docente (su semana completa), con
+     * curso, materia y docente cargados. Alimenta /docente/horario.
+     */
+    @EntityGraph(attributePaths = {"curso", "curso.materia", "curso.docente", "curso.docente.user"})
+    List<HorarioBloque> findByCursoDocenteId(Long docenteId);
+
     /** Bloques del mismo día de TODOS los cursos de una sección (para cazar solapes). */
     List<HorarioBloque> findByCursoSeccionIdAndDia(Long seccionId, DiaSemana dia);
 
