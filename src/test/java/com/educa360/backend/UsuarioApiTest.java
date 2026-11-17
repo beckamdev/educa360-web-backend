@@ -26,6 +26,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -308,9 +309,86 @@ class UsuarioApiTest {
         assertTrue(cuerpo.contains("Dana Editada"));
         assertTrue(cuerpo.contains("Maestría en Educación"), "el título del perfil se actualiza");
 
+        // Guardar la MISMA lista no choca con unique(user_id, numero)
+        String iguales = actualizar(id, """
+                {"nombres":"Dana Editada","apellidos":"Perez",
+                 "telefonos":["987111222","987333444"]}""");
+        assertTrue(iguales.contains("987111222"), iguales);
+        assertTrue(iguales.contains("987333444"), iguales);
+
         String vacio = actualizar(id, """
                 {"nombres":"Dana Editada","apellidos":"Perez","telefonos":[]}""");
         assertTrue(vacio.contains("\"telefonos\":[]"), "lista vacía debe quitar todos");
+    }
+
+    @Test
+    @DisplayName("El usuario autenticado reemplaza sus propios teléfonos")
+    void elUsuarioEditaSusTelefonos() throws Exception {
+        String token = altaYToken("/api/v1/admin/docentes",
+                docenteBody("telefono@educa360.pe", "80000009"),
+                "telefono@educa360.pe", "Docente1234");
+
+        String inicial = conToken(get("/api/v1/auth/me"), token)
+                .getResponse().getContentAsString();
+        assertTrue(inicial.contains("987654321"), inicial);
+
+        // Reemplazo: los anteriores desaparecen
+        String cambiado = editarTelefonos(token, "[\"999111222\",\"+51999888777\"]");
+        assertTrue(cambiado.contains("999111222"), cambiado);
+        assertTrue(cambiado.contains("+51999888777"), cambiado);
+        assertFalse(cambiado.contains("987654321"), "el teléfono anterior se reemplaza");
+
+        // Persistido: /auth/me lo refleja sin volver a loguear
+        String releido = conToken(get("/api/v1/auth/me"), token)
+                .getResponse().getContentAsString();
+        assertTrue(releido.contains("999111222"), releido);
+        assertFalse(releido.contains("987654321"), releido);
+
+        // Repetir el mismo número no rompe el unique (user_id, numero)
+        assertEquals(200, conToken(patch("/api/v1/auth/me/telefonos")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"telefonos\":[\"999111222\"]}"), token)
+                .getResponse().getStatus());
+
+        // Lista vacía: quita todos
+        String vacio = editarTelefonos(token, "[]");
+        assertTrue(vacio.contains("\"telefonos\":[]"), vacio);
+
+        // Duplicado y formato inválido
+        assertEquals(400, conToken(patch("/api/v1/auth/me/telefonos")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"telefonos\":[\"999111222\",\"999111222\"]}"), token)
+                .getResponse().getStatus(), "no se repite el mismo número");
+        assertEquals(400, conToken(patch("/api/v1/auth/me/telefonos")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"telefonos\":[\"abc\"]}"), token)
+                .getResponse().getStatus(), "formato inválido");
+        assertEquals(400, conToken(patch("/api/v1/auth/me/telefonos")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"), token)
+                .getResponse().getStatus(), "la lista es obligatoria");
+
+        // El estudiante no gestiona teléfonos
+        String tokenAlumno = crearYTokenearEstudiante();
+        assertEquals(403, conToken(patch("/api/v1/auth/me/telefonos")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"telefonos\":[\"999111222\"]}"), tokenAlumno)
+                .getResponse().getStatus(), "un estudiante no edita teléfonos");
+
+        // Sin token no hay edición
+        assertEquals(401, mockMvc.perform(patch("/api/v1/auth/me/telefonos")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"telefonos\":[\"999111222\"]}"))
+                .andReturn().getResponse().getStatus());
+    }
+
+    private String editarTelefonos(String token, String telefonosJson) throws Exception {
+        MvcResult resultado = conToken(patch("/api/v1/auth/me/telefonos")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"telefonos\":" + telefonosJson + "}"), token);
+        assertEquals(200, resultado.getResponse().getStatus(),
+                resultado.getResponse().getContentAsString());
+        return resultado.getResponse().getContentAsString();
     }
 
     // ==================== Helpers ====================
