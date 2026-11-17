@@ -10,6 +10,7 @@ import com.educa360.backend.entity.User;
 import com.educa360.backend.repository.AnioEscolarRepository;
 import com.educa360.backend.repository.ApoderadoEstudianteRepository;
 import com.educa360.backend.repository.ApoderadoRepository;
+import com.educa360.backend.repository.DispositivoRepository;
 import com.educa360.backend.repository.EstudianteRepository;
 import com.educa360.backend.repository.MatriculaRepository;
 import com.educa360.backend.repository.NotificacionRepository;
@@ -42,6 +43,7 @@ import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -73,6 +75,7 @@ class NotificacionApiTest {
     }
 
     private static final String NOTIFICACIONES = "/api/v1/notificaciones";
+    private static final String DISPOSITIVOS = "/api/v1/notificaciones/dispositivos";
     private static final String COMUNICADOS = "/api/v1/admin/comunicados";
 
     @Autowired private MockMvc mockMvc;
@@ -86,6 +89,7 @@ class NotificacionApiTest {
     @Autowired private ApoderadoEstudianteRepository vinculoRepository;
     @Autowired private MatriculaRepository matriculaRepository;
     @Autowired private NotificacionRepository notificacionRepository;
+    @Autowired private DispositivoRepository dispositivoRepository;
 
     private User admin;
     private User alumnoUser;
@@ -98,6 +102,7 @@ class NotificacionApiTest {
     @BeforeEach
     void empezarDeCero() {
         notificacionRepository.deleteAll();
+        dispositivoRepository.deleteAll();
         matriculaRepository.deleteAll();
         vinculoRepository.deleteAll();
         estudianteRepository.deleteAll();
@@ -224,6 +229,108 @@ class NotificacionApiTest {
         assertEquals(401, mockMvc.perform(get(NOTIFICACIONES))
                 .andReturn().getResponse().getStatus());
         assertEquals(401, mockMvc.perform(get(NOTIFICACIONES + "/contador"))
+                .andReturn().getResponse().getStatus());
+    }
+
+    // ==================== Dispositivos de push ====================
+
+    @Test
+    @DisplayName("El registro de dispositivo es idempotente y se puede listar")
+    void registraDispositivoIdempotente() throws Exception {
+        String cuerpo = """
+                {"token":"ExponentPushToken[abc]","plataforma":"ANDROID"}""";
+
+        MvcResult primero = conToken(post(DISPOSITIVOS)
+                .contentType(MediaType.APPLICATION_JSON).content(cuerpo), tokenAlumno);
+        assertEquals(200, primero.getResponse().getStatus(),
+                primero.getResponse().getContentAsString());
+        assertTrue(primero.getResponse().getContentAsString()
+                .contains("ExponentPushToken[abc]"));
+
+        assertEquals(200, conToken(post(DISPOSITIVOS)
+                .contentType(MediaType.APPLICATION_JSON).content(cuerpo), tokenAlumno)
+                .getResponse().getStatus());
+        assertEquals(1, dispositivoRepository.count(),
+                "el mismo token no duplica filas");
+
+        String listado = conToken(get(DISPOSITIVOS), tokenAlumno)
+                .getResponse().getContentAsString();
+        assertTrue(listado.contains("\"plataforma\":\"ANDROID\""), listado);
+    }
+
+    @Test
+    @DisplayName("El mismo token se reasigna al usuario que inicia sesión")
+    void tokenSeReasignaAlNuevoUsuario() throws Exception {
+        String cuerpo = """
+                {"token":"ExponentPushToken[compartido]","plataforma":"IOS"}""";
+
+        assertEquals(200, conToken(post(DISPOSITIVOS)
+                .contentType(MediaType.APPLICATION_JSON).content(cuerpo), tokenAlumno)
+                .getResponse().getStatus());
+        assertEquals(200, conToken(post(DISPOSITIVOS)
+                .contentType(MediaType.APPLICATION_JSON).content(cuerpo), tokenMama)
+                .getResponse().getStatus());
+
+        String deAlumno = conToken(get(DISPOSITIVOS), tokenAlumno)
+                .getResponse().getContentAsString();
+        String deMama = conToken(get(DISPOSITIVOS), tokenMama)
+                .getResponse().getContentAsString();
+        assertFalse(deAlumno.contains("compartido"),
+                "el token ya no pertenece al alumno: " + deAlumno);
+        assertTrue(deMama.contains("compartido"), deMama);
+    }
+
+    @Test
+    @DisplayName("El DELETE es idempotente y no borra el token de otra cuenta")
+    void eliminaSoloElPropio() throws Exception {
+        String token = "ExponentPushToken[propio]";
+        String cuerpo = """
+                {"token":"%s","plataforma":"ANDROID"}""".formatted(token);
+        conToken(post(DISPOSITIVOS)
+                .contentType(MediaType.APPLICATION_JSON).content(cuerpo), tokenAlumno);
+
+        assertEquals(204, conToken(delete(DISPOSITIVOS).param("token", token), tokenMama)
+                .getResponse().getStatus());
+        assertTrue(conToken(get(DISPOSITIVOS), tokenAlumno)
+                .getResponse().getContentAsString().contains("propio"),
+                "la otra cuenta no puede borrarlo");
+
+        assertEquals(204, conToken(delete(DISPOSITIVOS).param("token", token), tokenAlumno)
+                .getResponse().getStatus());
+        assertFalse(conToken(get(DISPOSITIVOS), tokenAlumno)
+                .getResponse().getContentAsString().contains("propio"));
+
+        assertEquals(204, conToken(delete(DISPOSITIVOS).param("token", token), tokenAlumno)
+                .getResponse().getStatus(), "borrar dos veces no falla");
+    }
+
+    @Test
+    @DisplayName("El registro valida token y plataforma")
+    void validaRegistroDeDispositivo() throws Exception {
+        assertEquals(400, conToken(post(DISPOSITIVOS)
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"token":"  ","plataforma":"ANDROID"}"""), tokenAlumno)
+                .getResponse().getStatus());
+        assertEquals(400, conToken(post(DISPOSITIVOS)
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"token":"ExponentPushToken[abc]"}"""), tokenAlumno)
+                .getResponse().getStatus());
+        assertEquals(400, conToken(post(DISPOSITIVOS)
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"token":"ExponentPushToken[abc]","plataforma":"WINDOWS"}"""), tokenAlumno)
+                .getResponse().getStatus());
+    }
+
+    @Test
+    @DisplayName("Sin token los dispositivos responden 401")
+    void dispositivosSinToken() throws Exception {
+        assertEquals(401, mockMvc.perform(get(DISPOSITIVOS))
+                .andReturn().getResponse().getStatus());
+        assertEquals(401, mockMvc.perform(post(DISPOSITIVOS)
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"token":"ExponentPushToken[abc]","plataforma":"ANDROID"}"""))
+                .andReturn().getResponse().getStatus());
+        assertEquals(401, mockMvc.perform(delete(DISPOSITIVOS).param("token", "x"))
                 .andReturn().getResponse().getStatus());
     }
 

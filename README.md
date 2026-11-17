@@ -110,11 +110,20 @@ valores reales van en el panel de Railway).
 | `APP_SECURITY_LOGIN_COOLDOWN_MINUTES` | No | Duración del bloqueo en minutos (por defecto `15`) |
 | `APP_SUPABASE_URL` | Para archivos | URL del proyecto Supabase (`https://<proyecto>.supabase.co`) |
 | `APP_SUPABASE_SERVICE_ROLE_KEY` | Para archivos | Service role key; **solo backend**, nunca en el frontend |
+| `APP_PUSH_ENABLED` | No | Activa el push nativo con Expo (por defecto `false`) |
+| `APP_PUSH_EXPO_URL` | No | Endpoint de Expo; solo se cambia para apuntar a un mock |
+| `APP_PUSH_EXPO_ACCESS_TOKEN` | No | Access token opcional de Expo Push Security |
 
 Para materiales y sustentos, crea en Supabase los buckets **privados**
 `materiales` y `sustentos`. Sin `APP_SUPABASE_URL` y
 `APP_SUPABASE_SERVICE_ROLE_KEY`, esos endpoints responden `503`; el resto de la
 API funciona normal.
+
+El push nativo está **apagado por defecto**: las notificaciones se guardan y se
+empujan por WebSocket, pero no despiertan apps cerradas. Al activar
+`APP_PUSH_ENABLED=true`, la app móvil debe registrar su token con
+`POST /api/v1/notificaciones/dispositivos`. Las credenciales de FCM/APNs se
+configuran en EAS (proyecto móvil), no en este backend.
 
 Genera el secreto JWT con:
 

@@ -42,7 +42,7 @@
 | **Ticket** | Solicitud de justificación de inasistencia creada por el apoderado y resuelta por Secretaría. |
 | **Material** | Archivo o enlace publicado por el docente para un curso, opcionalmente ligado a un contenido. |
 | **Comunicado** | Mensaje del docente a su sección, de Secretaría a toda la institución o del ADMIN a toda la institución o a una sección. |
-| **Notificación** | Aviso persistente dirigido a un usuario concreto sobre un evento del sistema (comunicado, ticket, nota, asistencia, material o cierre). Tiene estado leída/no leída y se empuja por WebSocket. No es un `Comunicado`: el comunicado es el contenido y la notificación es el aviso al destinatario. |
+| **Notificación** | Aviso persistente dirigido a un usuario concreto sobre un evento del sistema (comunicado, ticket, nota, asistencia, material o cierre). Tiene estado leída/no leída y se empuja por WebSocket; si el usuario registró un dispositivo, también se envía por push nativo (Expo). No es un `Comunicado`: el comunicado es el contenido y la notificación es el aviso al destinatario. |
 
 ### 0.2. Estados de madurez
 
@@ -70,10 +70,10 @@
 - Aplicación móvil nativa.
 - Primaria o inicial.
 - Firma digital de actas.
-- Notificaciones push nativas (APNs/FCM) o correo transaccional.
+- Correo transaccional.
 - Integración con sistemas externos del Ministerio.
 
-> Las **notificaciones internas persistentes y el push por WebSocket sí forman parte de la v3** (M12). Lo diferido es el envío a dispositivos o correo.
+> Las **notificaciones internas persistentes, el push por WebSocket y el push nativo vía Expo Push Service** forman parte de la v3 (M12/M13). El correo transaccional sigue fuera de alcance.
 
 ### 1.2. Principios de diseño
 
@@ -96,7 +96,7 @@
 | Lenguaje | Java 25 |
 | Framework | Spring Boot 4.1.1 (WebMVC, Security, Data JPA) |
 | Autenticación | JWT stateless + RBAC |
-| Tiempo real | WebSocket + STOMP (SockJS opcional para navegadores) |
+| Tiempo real | WebSocket + STOMP (SockJS opcional para navegadores); push nativo opcional con Expo Push Service |
 | Base de datos | PostgreSQL 17 |
 | Migraciones | Flyway **solo en la fase final**; durante el desarrollo se recrea la BD |
 | Almacenamiento | Supabase Storage (buckets privados) |
@@ -645,6 +645,25 @@ Reglas:
 - No se elimina; el historial es la propia tabla.
 - `leida_at` solo se rellena la primera vez; marcar dos veces es idempotente.
 
+##### `Dispositivo` ✅ — tabla `dispositivos`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `usuario_id` | FK → `User` | obligatorio; dueño del dispositivo |
+| `token` | String(255) | obligatorio y único; lo genera Expo en la app móvil |
+| `plataforma` | enum `PlataformaDispositivo` | `ANDROID`, `IOS`, `WEB` |
+
+Relaciones: **N—1** `User`.
+
+Reglas:
+- Un usuario puede tener varios dispositivos (celular, tablet); el aviso se envía a todos.
+- El registro es un **upsert por token**: la app móvil llama a `POST` en cada login porque los tokens cambian.
+- Si el token ya existía con otra cuenta, se reasigna al usuario autenticado: el aparato físico cambió de dueño.
+- El dueño sale del token JWT; un usuario no puede registrar ni borrar el dispositivo de otra cuenta.
+- Al cerrar sesión, la app lo borra con `DELETE`; la operación es idempotente.
+- Si Expo responde `DeviceNotRegistered`, el backend borra el token.
+- El envío es **asíncrono** y por **lotes de 100** (límite de Expo): no bloquea la petición ni la transacción. Si el push falla, la notificación ya está persistida y el WebSocket ya avisó a los conectados.
+
 ### 3.3. Restricciones e índices de base de datos
 
 Las unicidades simples se declaran con JPA (`@Table(uniqueConstraints=...)`). Las unicidades parciales y los `CHECK` se validan en servicio durante el desarrollo y se materializan en Flyway al final (M11), porque JPA no expresa índices parciales.
@@ -676,6 +695,8 @@ Las unicidades simples se declaran con JPA (`@Table(uniqueConstraints=...)`). La
 | `tickets_justificacion` | unique parcial `(estudiante_id, fecha_inasistencia, coalesce(bloque_id, 0))` where `estado in ('PENDIENTE','APROBADO')` |
 | `notificaciones` | FK `usuario_id` → `users` con `ON DELETE CASCADE`; índice `(usuario_id, leida)` |
 | `notificaciones` | check `tipo in ('COMUNICADO','TICKET_RESUELTO','CALIFICACION','ASISTENCIA','MATERIAL','CIERRE')` |
+| `dispositivos` | unique `token`; FK `usuario_id` → `users` con `ON DELETE CASCADE`; índice `(usuario_id)` |
+| `dispositivos` | check `plataforma in ('ANDROID','IOS','WEB')` |
 
 Reglas de integridad que se validan en servicio:
 - La sección de `Matricula` pertenece al mismo año que `AnioEscolar`.
@@ -806,7 +827,7 @@ EGRESADO   → (terminal)
 4. **No hay actas inmutables:** los promedios se calculan por consulta; un snapshot de actas queda diferido.
 5. **No hay entidad `Aula`:** el aula es texto libre en `Seccion`.
 6. **No hay primaria ni inicial:** grados 1 a 5 de secundaria.
-7. **No hay push nativo ni correo:** las notificaciones internas se persisten y se empujan por WebSocket mientras el usuario está conectado; sin conexión se consultan por REST. El broker STOMP es en memoria, así que el push no se comparte entre varias instancias.
+7. **No hay correo transaccional:** el push nativo es opcional vía Expo Push Service (M13); si está apagado, las notificaciones internas se persisten y se empujan por WebSocket mientras el usuario está conectado, y sin conexión se consultan por REST. El broker STOMP es en memoria, así que el WebSocket no se comparte entre varias instancias.
 
 ---
 
@@ -1501,9 +1522,9 @@ Diferido y documentado como limitación:
 
 ### Módulo 12 — Notificaciones persistentes y tiempo real ✅
 
-**Objetivo:** avisar a cada usuario de los eventos que le afectan, con historial persistente y entrega inmediata por WebSocket.
+**Objetivo:** avisar a cada usuario de los eventos que le afectan, con historial persistente, entrega inmediata por WebSocket y push nativo opcional a dispositivos.
 
-**Entidades:** `Notificacion` (nueva) y enum `TipoNotificacion`.
+**Entidades:** `Notificacion`, `Dispositivo` y enums `TipoNotificacion` / `PlataformaDispositivo`.
 
 **Reglas:**
 - `Notificacion` es independiente de `Comunicado`: el comunicado es el contenido y la notificación es el aviso al destinatario.
@@ -1513,6 +1534,9 @@ Diferido y documentado como limitación:
 - Un usuario solo puede leer y marcar sus propias notificaciones; una ajena responde `404`.
 - La notificación no se elimina; el historial completo queda en BD.
 - El broker STOMP es en memoria: con una instancia el push funciona; con varias haría falta Redis u otro broker.
+- El push nativo es opcional: con `app.push.enabled=false` se usa `NoopPushSender` y no se consultan dispositivos.
+- Con Expo activo, `PushNotificationService` envía en segundo plano, por lotes de 100, a todos los dispositivos del usuario.
+- Un token inválido (`DeviceNotRegistered`) se borra; un fallo de red no revierte el evento.
 
 **Eventos y destinatarios:**
 
@@ -1533,6 +1557,9 @@ Diferido y documentado como limitación:
 | `GET /api/v1/notificaciones/contador` | Autenticado | `{"noLeidas": n}` |
 | `PATCH /api/v1/notificaciones/{id}/leida` | Autenticado | Marca una propia como leída (idempotente) |
 | `PATCH /api/v1/notificaciones/leidas` | Autenticado | Marca todas las propias como leídas |
+| `POST /api/v1/notificaciones/dispositivos` | Autenticado | Registra/actualiza el token del dispositivo (upsert idempotente) |
+| `GET /api/v1/notificaciones/dispositivos` | Autenticado | Lista mis dispositivos registrados |
+| `DELETE /api/v1/notificaciones/dispositivos?token=` | Autenticado | Borra mi token al cerrar sesión (idempotente) |
 
 **WebSocket:**
 - Endpoint nativo STOMP: `/ws`.
@@ -1543,6 +1570,14 @@ Diferido y documentado como limitación:
 - El backend envía con `SimpMessagingTemplate.convertAndSendToUser(email, "/queue/notificaciones", payload)`.
 - `/ws/**` y `/ws-sockjs/**` son públicos en `SecurityConfig`; la autenticación real ocurre en el frame `CONNECT`.
 
+**Push nativo (M13):**
+- Proveedor: **Expo Push Service** (`POST https://exp.host/--/api/v2/push/send`), sin SDK ni credenciales de Firebase en el backend.
+- Activación: `APP_PUSH_ENABLED=true`. Por defecto `false`: `NoopPushSender` y la API funciona igual.
+- Opcional: `APP_PUSH_EXPO_ACCESS_TOKEN` si el proyecto Expo usa Push Security.
+- La app móvil obtiene el token con `expo-notifications` y lo registra en el `POST`; las credenciales de FCM/APNs viven en EAS.
+- `PushNotificationService` se ejecuta en un hilo aparte (`pushExecutor`), agrupa hasta 100 mensajes por petición y borra tokens inválidos.
+- Si Expo no está configurado o falla, el evento no se revierte: la notificación queda en BD y el WebSocket ya avisó a los conectados.
+
 **Criterios de aceptación:**
 - Crear un comunicado genera una notificación por destinatario y la empuja a los conectados.
 - Un usuario desconectado igual ve la notificación al consultar `GET /api/v1/notificaciones`.
@@ -1551,6 +1586,11 @@ Diferido y documentado como limitación:
 - Marcar una notificación ya leída no falla ni cambia `leida_at`.
 - Un `CONNECT` sin token o con token inválido/expirado se rechaza.
 - Un usuario no recibe por WebSocket eventos destinados a otro.
+- Registrar el mismo token dos veces no duplica filas.
+- Un usuario no puede borrar el token de otra cuenta.
+- Sin token, los endpoints de dispositivos responden `401`.
+- Con `app.push.enabled=false` no se consultan dispositivos ni se llama a Expo.
+- Un `DeviceNotRegistered` elimina el token del dispositivo.
 
 ---
 
@@ -1631,9 +1671,10 @@ Diferido y documentado como limitación:
 1. Ocurre un evento de negocio (comunicado, ticket, nota, asistencia, material o cierre).
 2. El servicio resuelve los destinatarios y `NotificacionService` guarda una `Notificacion` por usuario dentro de la misma transacción.
 3. Al confirmar la transacción, un callback `afterCommit` envía cada notificación a `/user/{email}/queue/notificaciones`.
-4. Si el usuario está conectado, la recibe al instante; si no, queda persistida y la ve al abrir la app.
-5. El frontend actualiza el contador con `GET /api/v1/notificaciones/contador` o al recibir el evento.
-6. Al abrir la bandeja, marca una o todas como leídas.
+4. En el mismo callback, `PushNotificationService` encola el envío a los dispositivos registrados. El hilo `pushExecutor` agrupa hasta 100 mensajes por petición a Expo y borra los tokens que el proveedor responde como inválidos.
+5. Si el usuario está conectado, la recibe al instante; si la app está cerrada pero registró un dispositivo, el push del sistema la despierta; si no, queda persistida y la ve al abrir la app.
+6. El frontend actualiza el contador con `GET /api/v1/notificaciones/contador` o al recibir el evento.
+7. Al abrir la bandeja, marca una o todas como leídas.
 
 ---
 
@@ -1642,7 +1683,7 @@ Diferido y documentado como limitación:
 ### 7.1. Estrategia actual (M11)
 
 - El esquema lo gobierna **Flyway**; Hibernate solo valida (`spring.jpa.hibernate.ddl-auto=validate`).
-- `db/migration/V1__esquema_inicial.sql` contiene el esquema completo.
+- `db/migration/V1__esquema_inicial.sql` contiene el esquema base; `V3__notificaciones.sql` y `V4__dispositivos.sql` agregan las tablas de notificaciones y dispositivos.
 - `db/seed/V2__datos_demo.sql` contiene datos mínimos de demostración y **solo se carga en desarrollo**.
 - `FLYWAY_LOCATIONS` decide qué migraciones se aplican:
   - desarrollo: `classpath:db/migration,classpath:db/seed`;
@@ -1663,11 +1704,12 @@ docker compose up -d --build
 src/main/resources/db/migration/
   V1__esquema_inicial.sql
   V3__notificaciones.sql
+  V4__dispositivos.sql
 src/main/resources/db/seed/
   V2__datos_demo.sql
 ```
 
-> `V2` es la semilla de desarrollo y vive en `db/seed`; `V3` es la primera migración de esquema posterior a `V1`. Los números de versión son globales: no se reutiliza `V2` para esquema.
+> `V2` es la semilla de desarrollo y vive en `db/seed`; `V3` y `V4` son migraciones de esquema posteriores a `V1`. Los números de versión son globales: no se reutiliza `V2` para esquema.
 
 - Una migración ya aplicada **no se edita**; se agrega una nueva versión (`V3__...`).
 - `ddl-auto=validate` en todos los entornos: si una entidad no coincide con el esquema, la aplicación no arranca.
@@ -1837,7 +1879,7 @@ Reglas:
 
 ## 11. Estado actual y roadmap
 
-### 11.1. Estado actual (tras M12)
+### 11.1. Estado actual (tras M13)
 
 | Módulo | Estado | Nota |
 |---|---|---|
@@ -1854,6 +1896,7 @@ Reglas:
 | M10 Cierre y reportes | ✅ | Cierre anual, boletas, historial y reportes |
 | M11 Endurecimiento y Flyway | ✅ | Flyway, `ddl-auto=validate`, Docker non-root, health check y CI |
 | M12 Notificaciones y WebSocket | ✅ | `Notificacion` persistente, REST de bandeja/contador y push STOMP por usuario |
+| M13 Push nativo | ✅ | Tokens de dispositivo, Expo Push Service opcional y envío asíncrono por lotes |
 
 ### 11.2. Orden de implementación
 
@@ -1870,6 +1913,7 @@ Reglas:
 11. M10: cierre y reportes.
 12. M11: endurecimiento y Flyway.
 13. M12: notificaciones persistentes y WebSocket.
+14. M13: push nativo con Expo Push Service.
 
 ### 11.3. Definición de “módulo terminado”
 
@@ -1930,6 +1974,7 @@ Un módulo se considera terminado cuando:
 | 39 | M10: el cierre exige al menos un bimestre y todos `CERRADO`; solo cuentan notas de unidades `PUBLICADA`. `APROBADO` exige todos los cursos con promedio anual ≥ `11.00` y asistencia global ≥ `70%`; sin registros de asistencia el porcentaje es `0.00%`. `RETIRADO` se conserva y no bloquea. Al aprobar 5° grado, el alumno pasa a `EGRESADO`. El cierre es idempotente y los reportes validan que bimestre y sección pertenezcan al año. |
 | 40 | M11: Flyway gobierna el esquema y Hibernate valida (`ddl-auto=validate`). Los datos demo viven en `db/seed` y solo se cargan si `FLYWAY_LOCATIONS` incluye esa ruta; en producción se usa solo `classpath:db/migration`. Las migraciones aplicadas no se editan. |
 | 41 | M12: `Notificacion` es una entidad separada de `Comunicado`; un comunicado puede generar notificaciones. Se persisten antes del push y se envían después del commit. El destinatario sale del token. El WebSocket usa STOMP con JWT en el frame `CONNECT` y destino `/user/queue/notificaciones`; el broker es en memoria y no se comparte entre instancias. |
+| 42 | M13: el push nativo usa Expo Push Service y es opcional (`APP_PUSH_ENABLED=false` por defecto). El backend no guarda credenciales de FCM/APNs: viven en EAS. Los tokens son únicos, se reasignan al usuario que inicia sesión y se borran si Expo responde `DeviceNotRegistered`. El envío es asíncrono y por lotes de 100. |
 
 ### 12.2. Supuestos operativos
 
@@ -1946,7 +1991,7 @@ Un módulo se considera terminado cuando:
 4. No hay actas inmutables.
 5. No hay entidad `Aula`.
 6. No hay primaria ni inicial.
-7. No hay push nativo (APNs/FCM) ni correo; las notificaciones internas se persisten y se empujan por WebSocket. El broker STOMP es en memoria y no sirve para varias instancias sin Redis.
+7. El push nativo es opcional (Expo Push Service) y no hay correo transaccional; sin push, las notificaciones internas se persisten y se empujan por WebSocket. El broker STOMP es en memoria y no sirve para varias instancias sin Redis. El push real requiere que la app móvil tenga credenciales de FCM/APNs en EAS y se pruebe en un dispositivo físico.
 8. El rate limiting de login es en memoria; no sirve con múltiples instancias.
 9. No hay refresh tokens: el JWT dura 24 h y debe renovarse iniciando sesión.
 10. No hay backups automáticos ni métricas/alertas; el health check es básico.
@@ -1954,6 +1999,15 @@ Un módulo se considera terminado cuando:
 ---
 
 ## 13. Registro de cambios
+
+### v3.7 — 2026-11-16 (M13 implementado)
+
+- M13 Push nativo queda ✅: tabla `dispositivos`, entidad `Dispositivo` y enum `PlataformaDispositivo`.
+- Endpoints `POST/GET/DELETE /api/v1/notificaciones/dispositivos`; identidad desde el token, upsert por token y borrado idempotente.
+- `PushSender` con implementaciones `ExpoPushSender` y `NoopPushSender`; activación por `APP_PUSH_ENABLED`.
+- `PushNotificationService` envía en segundo plano, por lotes de 100, y elimina tokens `DeviceNotRegistered`.
+- Migración `V4__dispositivos.sql`.
+- Tests: `ExpoPushSenderTest`, `PushNotificationServiceTest` y casos nuevos en `NotificacionApiTest`.
 
 ### v3.6 — 2026-11-06 (M12 implementado)
 
@@ -1964,7 +2018,7 @@ Un módulo se considera terminado cuando:
 - WebSocket STOMP en `/ws` (nativo) y `/ws-sockjs` (fallback); el JWT viaja en el header `Authorization` del frame `CONNECT`; el cliente se suscribe a `/user/queue/notificaciones`.
 - `SecurityConfig` deja públicos `/ws/**` y `/ws-sockjs/**`; la autenticación real la hace `WebSocketAuthChannelInterceptor`.
 - Migración `V3__notificaciones.sql`; `V1` y `V2` no se editan.
-- Se documenta que el broker STOMP es en memoria y que el push nativo/correo sigue fuera de alcance.
+- Se documenta que el broker STOMP es en memoria; en v3.6 el push nativo y el correo quedaban fuera de alcance (M13 incorpora el push nativo después).
 - Tests: `NotificacionServiceTest`, `NotificacionApiTest` y `WebSocketAuthChannelInterceptorTest`; suite total actualizada.
 
 ### v3.5 — 2026-11-04 (M11 implementado)
