@@ -1,5 +1,6 @@
 package com.educa360.backend.service;
 
+import com.educa360.backend.config.ZonaHoraria;
 import com.educa360.backend.dto.ArchivoDescargaResponse;
 import com.educa360.backend.dto.TicketCreateRequest;
 import com.educa360.backend.dto.TicketResolverRequest;
@@ -95,7 +96,7 @@ public class JustificacionService {
         this(ticketRepository, asistenciaRepository, apoderadoRepository, vinculoRepository,
                 matriculaRepository, horarioRepository, secretariaRepository, anioRepository,
                 userRepository, storageService, archivoValidator, notificacionService,
-                Clock.systemDefaultZone());
+                ZonaHoraria.reloj());
     }
 
     /** Visible para tests: inyecta un reloj falso. */

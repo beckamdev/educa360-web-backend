@@ -1,5 +1,6 @@
 package com.educa360.backend.entity;
 
+import com.educa360.backend.config.ZonaHoraria;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
@@ -67,7 +68,7 @@ public class Notificacion extends Auditable {
     public void marcarLeida() {
         if (!leida) {
             this.leida = true;
-            this.leidaAt = LocalDateTime.now();
+            this.leidaAt = LocalDateTime.now(ZonaHoraria.APP);
         }
     }
 

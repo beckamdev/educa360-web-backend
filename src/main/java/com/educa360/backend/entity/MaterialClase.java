@@ -1,5 +1,6 @@
 package com.educa360.backend.entity;
 
+import com.educa360.backend.config.ZonaHoraria;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
@@ -87,7 +88,7 @@ public class MaterialClase extends Auditable {
 
     public void publicar() {
         this.publicado = true;
-        this.fechaPublicacion = LocalDateTime.now();
+        this.fechaPublicacion = LocalDateTime.now(ZonaHoraria.APP);
     }
 
     public void despublicar() {

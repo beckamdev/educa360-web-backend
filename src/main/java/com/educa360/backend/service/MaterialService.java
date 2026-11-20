@@ -1,5 +1,6 @@
 package com.educa360.backend.service;
 
+import com.educa360.backend.config.ZonaHoraria;
 import com.educa360.backend.dto.ArchivoDescargaResponse;
 import com.educa360.backend.dto.MaterialResponse;
 import com.educa360.backend.dto.MaterialUpdateRequest;
@@ -269,7 +270,7 @@ public class MaterialService {
 
         String url = storageService.signedUrl(StorageService.BUCKET_MATERIALES,
                 material.getStoragePath(), TTL_DESCARGA);
-        return new ArchivoDescargaResponse(url, LocalDateTime.now().plus(TTL_DESCARGA));
+        return new ArchivoDescargaResponse(url, LocalDateTime.now(ZonaHoraria.APP).plus(TTL_DESCARGA));
     }
 
     // ==================== Helpers ====================
