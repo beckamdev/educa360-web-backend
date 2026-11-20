@@ -1,5 +1,6 @@
 package com.educa360.backend.entity;
 
+import com.educa360.backend.config.ZonaHoraria;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
@@ -27,13 +28,13 @@ public abstract class Auditable {
 
     @PrePersist
     void onCreate() {
-        this.createdAt = LocalDateTime.now();
+        this.createdAt = LocalDateTime.now(ZonaHoraria.APP);
         this.updatedAt = this.createdAt;
     }
 
     @PreUpdate
     void onUpdate() {
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now(ZonaHoraria.APP);
     }
 
     // Getters and Setters

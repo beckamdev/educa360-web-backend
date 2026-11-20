@@ -1,5 +1,7 @@
 package com.educa360.backend.exception;
 
+import com.educa360.backend.config.ZonaHoraria;
+
 import java.time.LocalDateTime;
 import java.util.Map;
 
@@ -17,11 +19,11 @@ public record ApiError(
         Map<String, String> fields
 ) {
     public static ApiError of(int status, String error, String message, String path) {
-        return new ApiError(LocalDateTime.now(), status, error, message, path, null);
+        return new ApiError(LocalDateTime.now(ZonaHoraria.APP), status, error, message, path, null);
     }
 
     public static ApiError withFields(int status, String error, String message, String path,
                                       Map<String, String> fields) {
-        return new ApiError(LocalDateTime.now(), status, error, message, path, fields);
+        return new ApiError(LocalDateTime.now(ZonaHoraria.APP), status, error, message, path, fields);
     }
 }

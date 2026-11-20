@@ -11,6 +11,14 @@ inventa: se pide y se documenta.
 - **Errores:** cuerpo uniforme `ApiError` (`status`, `error`, `message`, `path`,
   `fields`). `fields` solo viene en errores de validación (`400`).
 
+> **Fechas y horas.** Los `timestamp` (`createdAt`, `updatedAt`,
+> `fechaPublicacion`, `fechaResolucion`, `leidaAt`, `expiresAt`) vienen en
+> **hora de Perú sin offset** (`2026-11-20T13:00:00`). Muéstralos tal cual: no
+> les agregues `Z` ni los interpretes como UTC. Las `fecha` son `YYYY-MM-DD` y
+> las horas `HH:mm:ss`, también de Perú. Para calcular "hoy" usa los componentes
+> locales del dispositivo, **no** `toISOString().slice(0,10)`: después de las
+> 19:00 en Perú eso devuelve el día siguiente.
+
 ---
 
 ## 1. Sesión

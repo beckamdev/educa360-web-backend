@@ -1,5 +1,6 @@
 package com.educa360.backend.service;
 
+import com.educa360.backend.config.ZonaHoraria;
 import com.educa360.backend.dto.AsistenciaAlumnoResponse;
 import com.educa360.backend.dto.AsistenciaBloqueResumenResponse;
 import com.educa360.backend.dto.AsistenciaBulkRequest;
@@ -108,7 +109,7 @@ public class AsistenciaService {
         this(asistenciaRepository, cursoRepository, horarioRepository, bimestreRepository,
                 docenteRepository, userRepository, estudianteRepository, matriculaRepository,
                 matriculaService, apoderadoRepository, vinculoRepository, ticketRepository,
-                notificacionService, Clock.systemDefaultZone());
+                notificacionService, ZonaHoraria.reloj());
     }
 
     /** Visible para tests: inyecta un reloj falso. */
