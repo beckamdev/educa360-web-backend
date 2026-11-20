@@ -1,5 +1,6 @@
 package com.educa360.backend.service;
 
+import com.educa360.backend.config.ZonaHoraria;
 import com.educa360.backend.dto.CambioSeccionRequest;
 import com.educa360.backend.dto.MatriculaRequest;
 import com.educa360.backend.dto.MatriculaResponse;
@@ -68,7 +69,7 @@ public class MatriculaService {
                             CalificacionRepository calificacionRepository) {
         this(matriculaRepository, estudianteRepository, seccionRepository,
                 anioRepository, userRepository, asistenciaRepository,
-                calificacionRepository, Clock.systemDefaultZone());
+                calificacionRepository, ZonaHoraria.reloj());
     }
 
     /** Visible para tests: inyecta un reloj falso. */

@@ -1,5 +1,6 @@
 package com.educa360.backend.service;
 
+import com.educa360.backend.config.ZonaHoraria;
 import com.educa360.backend.dto.ContadorNotificacionesResponse;
 import com.educa360.backend.dto.NotificacionResponse;
 import com.educa360.backend.entity.AnioEscolar;
@@ -110,7 +111,7 @@ public class NotificacionService {
     @Transactional
     public ContadorNotificacionesResponse marcarTodasLeidas(String email) {
         User usuario = usuarioDe(email);
-        notificacionRepository.marcarTodasLeidas(usuario.getId(), LocalDateTime.now());
+        notificacionRepository.marcarTodasLeidas(usuario.getId(), LocalDateTime.now(ZonaHoraria.APP));
         return new ContadorNotificacionesResponse(0);
     }
 

@@ -1,7 +1,7 @@
 # Contexto del Proyecto: Educa360 (Backend)
 
-> **Documento vivo — v3.8**
-> Última actualización: 2026-11-17
+> **Documento vivo — v3.9**
+> Última actualización: 2026-11-20
 > Este archivo es la **fuente de verdad** del dominio, las reglas de negocio y el roadmap.
 > Si el código y este documento difieren, se corrigen ambos en el mismo cambio.
 > Para el contrato que consume la app móvil, ver [`MOVIL.md`](./MOVIL.md).
@@ -2029,6 +2029,7 @@ Un módulo se considera terminado cuando:
 | 44 | M14: `PATCH /auth/me/telefonos` reemplaza la lista propia (`[]` quita todos, `null` no se acepta). `ESTUDIANTE` responde `403`; máximo 5 números, sin duplicados. El borrado se hace flush antes del insert para no chocar con `unique(user_id, numero)` cuando se repite un número; la edición de ADMIN usa el mismo arreglo. |
 | 45 | Calendario escolar / días no lectivos: **fuera de alcance**. El backend no modela feriados y no bloquea el registro de asistencia en esas fechas; la app no puede impedirlo. Decisión del equipo, revisable si cambia el requisito. |
 | 46 | Comunicado a varias secciones: **por diseño no se implementa**. `DOCENTE` publica en una sola sección donde dicta clase o es tutor; un aviso a varias secciones se resuelve publicando un general desde `SECRETARIA` o `ADMIN`. |
+| 47 | Zona horaria: la aplicación opera en `America/Lima`. La auditoría, la tardanza y las fechas de negocio usan `ZonaHoraria.APP` explícita y no la zona del servidor, porque Railway y Docker arrancan en UTC. El esquema sigue con `timestamp without time zone`: los timestamps se guardan y devuelven en hora de Perú **sin offset**. `TZ=America/Lima` en Dockerfile/compose solo refuerza logs y psql. |
 
 ### 12.2. Supuestos operativos
 
@@ -2053,6 +2054,15 @@ Un módulo se considera terminado cuando:
 ---
 
 ## 13. Registro de cambios
+
+### v3.9 — 2026-11-20 (zona horaria)
+
+- Se fija `America/Lima` en código (`ZonaHoraria.APP`): auditoría, publicación de materiales, notificaciones, `ApiError.timestamp` y vencimiento de URLs firmadas ya no dependen de la zona del contenedor.
+- Fix: `AsistenciaService`, `JustificacionService` y `MatriculaService` usan `Clock.system(America/Lima)`. Antes `Clock.systemDefaultZone()` tomaba UTC en Railway/Docker, así que `LocalTime.now()` iba 5 horas adelante y **todo registro del día salía `TARDANZA`**; además, después de las 19:00 de Perú la fecha del servidor ya era la del día siguiente.
+- `TZ=America/Lima` en `Dockerfile` y `docker-compose.yml` para alinear logs y psql (el código no depende de esa variable).
+- Se documenta en `MOVIL.md` que los timestamps son hora de Perú sin offset y que "hoy" debe calcularse con la fecha local del dispositivo.
+- Tests nuevos: la auditoría se escribe en hora de Perú y el reloj de la app usa `America/Lima`.
+- Sin migraciones nuevas.
 
 ### v3.8 — 2026-11-17 (cierre móvil)
 

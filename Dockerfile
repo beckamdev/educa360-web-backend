@@ -30,6 +30,10 @@ FROM eclipse-temurin:25-jre
 
 WORKDIR /app
 
+# Hora de Perú: el código ya fija America/Lima, pero así también coinciden
+# los logs del contenedor y cualquier utilidad del sistema.
+ENV TZ=America/Lima
+
 # Contenedor non-root: la aplicación no corre como root.
 RUN groupadd --system educa360 \
     && useradd --system --gid educa360 --no-create-home educa360 \
